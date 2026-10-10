@@ -102,6 +102,13 @@ Use only a disposable test addon registering a deterministic provider with `Clev
 - Outstanding: canonical Lua 5.0.3 check across hook Lua files; broader legacy-write path audit; deterministic provider-present runtime matrix above. UI positioning explicitly deferred.
 - This update is documentation only; no DLSI runtime code or SCRM hook changes, no version bump, no branch promotion and no PR.
 
+## 2026-10-10 Follow-up: Host Legacy-Write Review (static only)
+- Verified both remote branch refs are still exactly the requested handoffs: DLSI `dev` = `9ba65ce0207a71c99dac4bbdccf8a51264b2e741`, SCRM `immunities-hook` = `bc0a488b051775f128b3d05db03876b15e747061`.
+- Inspected SCRM host `Utility.lua` legacy SavedVariables assignments. Automatic record/remove entry guards at approximately lines 6754, 6817, 6905, 7015; direct delayed bleed at 2725; direct shared-debuff/school write at 3368; combat-log school recording branch immediately before 7393; startup version reset in `Init.lua` at 360. Manual management functions intentionally remain available. This is a targeted source review, not complete proof across every possible runtime path.
+- External-provider `true`/`false`/`nil`, exceptions, invalid return, missing registration, account-wide selection and persistence remain **unverified in game**. No disposable provider was installed or exercised; do not mark the documented matrix as passed.
+- Canonical Lua 5.0.3 compilation still **NOT RUN**: the execution environment has `gcc`, but neither SCRM checkout nor VanillaTemplate `tools/lua50/` checkout is mounted, and shell GitHub DNS lookup fails. Remote GitHub contents inspection is not a substitute for running the checker. Do not claim a compiler pass.
+- No runtime code changed. No UI positioning, extraction, Slice 8, main updates or PR.
+
 ## Deferred / Out of Scope
 - Slice 8 runtime matrix, broad immunity promotion and unrequested learner changes.
 - No fork-to-main merge or legacy-data deletion.
