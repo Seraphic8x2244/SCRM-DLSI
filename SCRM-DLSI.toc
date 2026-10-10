@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: SCRM-DLSI-dev
 ## RequiredDeps: SuperCleveRoidMacros
-## Version: 0.1.0-dev
+## Version: 0.1.1-dev
 
 locales\enUS.lua
 SCRM-DLSI.lua
