@@ -16,7 +16,7 @@
 - DLSI owns advanced immunity observations, transient guards, HearthDB-backed knowledge, learning, diagnostics, alerts and its own UI.
 - Integrate through a **generic, open immunity-provider extension API**, not a DLSI-specific interface.
 - Upstream integration has been implemented (not submitted as a PR) on `Seraphic8x2244/SuperCleveRoidMacros:immunities-hook`, latest reviewed HEAD `b5fab176cf67018b4be594ad067346579630110d`, based on upstream-mirroring `main` `37ca7cef4012cc0d76b7e559ac9517c785dbae79`. Do not use upstream `main` for the hook until approved/merged.
-- The Blizzard macro window should **always** expose an `Immunity Provider` button immediately left of the character-specific macros tab. With no external provider registered, the selector has one choice: SCRM Built-in. This was updated on host `immunities-hook` at `e7062bec` (UI change `1ed6d458`); button placement and click behaviour remain untested in-game.
+- The Blizzard macro window always exposes an `Immunity Provider:` row and standard Blizzard dropdown above the Delete / New / Exit footer, without modifying macro tabs. With no external provider, SCRM Built-in is its sole option. Initial left-of-tab UI was observed overlapping/skinning poorly in-game, so host `immunities-hook` was revised at `1e9efbfd` (docs `bcf9f787`); the new footer layout and dropdown still require in-game validation.
 
 ### Invariants
 - Preserve existing `[immune]` and `[noimmune]` macro syntax, including the bare action form.
