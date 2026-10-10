@@ -27,6 +27,15 @@
 - No unsupported assumptions of cross-core runtime compatibility; vMaNGOS and Turtle/Octo need live validation.
 - SCRM `main` must stay an upstream mirror; do not move fork-only learner code there.
 
+
+### Final provider ownership decision (2026-10-10)
+- Normal SCRM must behave exactly as upstream when built-in is selected or no provider is configured.
+- A selected external provider is the sole authoritative immunity source. No hybrid answers, built-in fallback, learning supplementation, inferred answers, or hole-patching by SCRM.
+- SCRM's automatic legacy learning and removal stays dormant for the full duration of external selection, including provider errors, missing providers, and unknown results. Existing data is never merged, migrated, reset, or deleted by the integration.
+- The provider owns the distinction between established immune, established vulnerable, and unknown (insufficient learning). Operational provider failure is separate. Unknown does not justify guessing; neither positive nor negative conditionals should turn unavailable information into certainty.
+- DLSI's established learner, evidence handling, uncertainty, safeguards, storage and alerts are not to be modified. Integration adapts at the interface only.
+- Current host hook is a draft and violates the agreed failure semantics: selected-provider errors currently activate built-in fallback. Its boolean-only contract also needs a way to retain unknown without conflating it with vulnerability. Correct this before DLSI integration or an upstream PR.
+
 ### Protocol / Data Model
 - SCRM hook implementation currently exposes `CleveRoids.RegisterImmunityProvider(id, displayName, check)`; `check(unitId, spellOrSchool)` must return a boolean. It also exposes `GetSelectedImmunityProvider`, `GetActiveImmunityProvider`, `IsExternalImmunityActive`, `QueryExternalImmunity`, and `SelectImmunityProvider`. This is an implemented *host draft*, not yet a runtime-proven contract.
 - Multiple providers can register. User selection is explicit and **account-wide** in `CleveRoidMacros.immunityProvider` (rather than per-character). SCRM built-in is default. The existing host draft currently falls back to built-in after a missing/failed selected provider; **this is a confirmed defect and must be corrected before DLSI integration**. Agreed contract: SCRM built-in runs only when explicitly selected or as the initial default. Any selected external provider is solely authoritative, even when missing, broken or unable to query; unknown/error must make both `[immune]` and `[noimmune]` fail conservatively, and no automatic built-in learning/removal resumes. Never blend external and legacy data. Preserve the selected provider and existing storage without migration or deletion.
