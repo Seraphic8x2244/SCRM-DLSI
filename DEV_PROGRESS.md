@@ -82,6 +82,26 @@
 - Validate the corrected generic SCRM host hook at `bc0a488b` using the canonical Lua 5.0.3 compiler and a temporary test provider (not shipped). Test selection, nil/true/false, missing/error, reload and automatic-write isolation; defer macro-row anchor check until next user runtime session. Do not open a PR without authorisation.
 - Begin first DLSI functional development build on `dev` only after confirming the final registration/query/failure contract. Extract existing immunity modules and fork-local helpers with explicit ownership, without changing inference semantics. Bump DLSI's TOC version for runtime changes.
 
+## Bounded Host Provider Integration Test Matrix (prepared; not run)
+Use only a disposable test addon registering a deterministic provider with `CleveRoids.RegisterImmunityProvider`. Do not implement DLSI or mutate its inference engine.
+1. SCRM alone: Built-in sole selector entry; legacy `[immune]`/`[noimmune]` and automatic learning remain baseline-compatible.
+2. Register an external provider returning `true`; explicitly select it; verify `[immune]` succeeds and `[noimmune]` fails for the same unit/query.
+3. Return `false`; verify `[immune]` fails and `[noimmune]` succeeds.
+4. Return `nil`; verify **both** conditions fail (unknown, not vulnerable); test bare action syntax as well.
+5. Throw an error and separately return an invalid value; verify one warning, unknown conservative results, no built-in fallback.
+6. Reload with the selected external provider absent; verify selection persistence, visible unavailable entry, both conditions conservatively false, and **no** built-in automatic learning/removal.
+7. For true/false/nil/error/missing cases, snapshot legacy SavedVariables and exercise relevant combat-log and delayed paths; verify zero automatic legacy mutations, including startup reset. Do not use manual mutation commands in this check.
+8. Re-register/restore a provider and select it, then explicitly select Built-in; verify normal queries and automatic learner resume without deleting or merging stored records.
+9. Check selector account-wide persistence across characters/reloads and registration/selection order.
+10. Defer Delete-button-anchored macro-window placement verification to the next user UI session.
+
+## 2026-10-10 Repository Verification / Bounded Audit
+- GitHub remote refs verified at start: SCRM `immunities-hook` = `bc0a488b051775f128b3d05db03876b15e747061`; DLSI `dev` = `b60dc73956af435b2d28f7752856a6aace5fca8e`.
+- Compared host against upstream-mirroring `37ca7cef`: 9 commits ahead, 0 behind, six changed files. Reviewed `ImmunityProviders.lua` and relevant `Init.lua` implementation: selected provider ID remains authoritative even if absent/error; valid answers are true/false/nil; invalid/throwing answers are marked failed and yield unknown; explicit Built-in selection required to restore fallback; startup legacy reset guarded while external selected. This is a **bounded source audit**, not a full codebase re-audit or runtime pass.
+- Canonical Lua 5.0.3 compilation: **NOT RUN**. GitHub file retrieval was available, and shell has `gcc`/`git`, but no checkout/checker was mounted and shell GitHub DNS resolution failed. The canonical VanillaTemplate source and host checkout were therefore not available together for execution. Do not claim a syntax/compiler pass.
+- Outstanding: canonical Lua 5.0.3 check across hook Lua files; broader legacy-write path audit; deterministic provider-present runtime matrix above. UI positioning explicitly deferred.
+- This update is documentation only; no DLSI runtime code or SCRM hook changes, no version bump, no branch promotion and no PR.
+
 ## Deferred / Out of Scope
 - Slice 8 runtime matrix, broad immunity promotion and unrequested learner changes.
 - No fork-to-main merge or legacy-data deletion.
@@ -92,4 +112,4 @@
 - Lua 5.0.3 checker is maintained in VanillaTemplate at `tools/lua50/` and may be run there against this checkout when needed.
 
 ## Exact Next Step
-Run the canonical Lua 5.0.3 checker on SCRM `immunities-hook` at `bc0a488b` in an environment with the VanillaTemplate checker available. Perform a bounded temporary-provider runtime test of authority, unknown/error, learning suppression and selector (not Slice 8); then begin DLSI `dev` extraction/integration without changing its inference logic. Do not open an upstream PR before review/approval.
+Run canonical Lua 5.0.3 compilation on the unchanged SCRM `immunities-hook` tree with VanillaTemplate checker in a shell that can access both trees. Complete outstanding legacy-write review and execute the prepared bounded test-provider matrix; keep dropdown positioning deferred. Do not extract DLSI, begin Slice 8 or open a PR without authorization.
