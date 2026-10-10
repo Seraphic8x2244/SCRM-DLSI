@@ -20,11 +20,11 @@
 ## Current
 - User-approved implementation layout: **one DLSI Lua file only**, `SCRM-DLSI.lua`. The first runnable build must respect that constraint.
 - Branch: `dev`
-- Version: `0.1.0-dev` (scaffold only)
+- Version: `0.1.1-dev` (single-source extraction staged; module loaders intentionally dormant)
 - Development checkpoint before this documentation update: `9722816f9c0feee47406fe7f274a587ccd5253df`. Verify the live `dev` HEAD before resuming.
 - Stable baseline: None; `main` is the README-only repository baseline.
 - Goal: Extract the advanced SCRM immunity system into an independently maintained companion addon.
-- Current scope boundary: DLSI remains a scaffold, with no learner extraction or DLSI runtime implementation. The independent host hook is implemented on SCRM's `immunities-hook` branch, with its no-hybrid query/learning correction committed; Lua 5.0.3 compilation and provider-present runtime validation are still outstanding.
+- Current scope boundary: Five original advanced modules are staged verbatim in the sole `SCRM-DLSI.lua` within private loader functions; these are intentionally **not invoked** until helpers, provider adapter, DB safety and event ownership are integrated. This is not a runnable provider build. The independent host hook is implemented on SCRM's `immunities-hook` branch, with its no-hybrid query/learning correction committed; Lua 5.0.3 compilation and provider-present runtime validation are still outstanding.
 
 ## Current Design / Development Contract
 
@@ -74,10 +74,11 @@
 - User tested SCRM `immunities-hook` with no provider: macro window and ordinary macro conditionals work. Legacy immunity learning and provider-present behaviour were **not** tested; these are host baseline observations, not DLSI runtime tests.
 
 ## Implemented / Awaiting Runtime Test
-- **DLSI:** None; template scaffold is not a functioning immunity plugin.
+- **DLSI:** Exact source text of `ImmunityObservations.lua`, `ImmunityStorage.lua`, `ImmunityTransient.lua`, `ImmunityKnowledge.lua`, and `ImmunityUI.lua` from `design/temp-cc-immunity` staged together in `SCRM-DLSI.lua` as separate dormant loader functions; no inference functions modified. Not yet a functioning plugin.
 - **SCRM host (separate repository):** Generic provider registration, persistent authority choice, nil/boolean query contract, single delegation, conservative unknown conditional handling, identified automatic write suppression and startup legacy-reset guard committed at `bc0a488b`. Source-reviewed but not tested with an external provider in-game. Built-in conditional semantics remain unchanged in source.
 
 ## Static / Automated Checks
+- Single-file staging: verified five prototype module retrievals and committed their source text within isolated loader functions. Canonical Lua 5.0.3 compilation **NOT RUN**; no executable complete checker/checkout in this session. No WoW runtime test. Staged source contains no module-loader calls, so this is **not** an operable extraction or proof of integration.
 - DLSI template source and remote HEAD inspected; no DLSI Lua compiler or runtime test.
 - SCRM final hook diff reviewed against upstream mirror `main`: 6 files, +205/-7. Targeted static invariants PASS: selected authority independent of provider health; handled nil/true/false; CC wrapper avoids double delegation; `[noimmune]` fails on external unknown; four automatic record/remove functions guarded; direct delayed-bleed/shared-debuff and combat-log school writes guarded; startup version reset excluded during external selection; manual command mutations retained; no DLSI-specific host logic. This was source-level inspection, **not a Lua 5.0.3 compiler pass**. A compiler executable and checker sources were not available together in the active environment; the canonical VanillaTemplate checker was not run. SCRM's initial no-provider macro-window/conditional test passed in-game, and the dropdown subsequently opened with SCRM Built-in without Lua errors.
 
@@ -136,5 +137,12 @@ Use only a disposable test addon registering a deterministic provider with `Clev
 - Dependencies: brues-code SCRM; existing upstream client requirements; HearthDB for DLSI learning.
 - Lua 5.0.3 checker is maintained in VanillaTemplate at `tools/lua50/` and may be run there against this checkout when needed.
 
+## 2026-10-10 Initial Single-File Extraction Checkpoint
+- Starting DLSI handoff `cac497e62984e77c0f3dd70d4167f90dacaedd0f` matched remote `dev`, frozen host `bc0a488b` matched `immunities-hook`, and prototype branch remained 217 commits ahead of `main` at comparison time.
+- Commit `e75e1987` staged original five advanced immunity module sources (159,170-byte composite) in `SCRM-DLSI.lua`, one private loader function per original module, in original TOC order (Observations, Storage, Transient, Knowledge, UI); TOC bumped to `0.1.1-dev` at `28ee4099`.
+- Functions have deliberately **not been invoked**, because prototype helper dependencies (notably `NormalizeGUID`, `GetTransientImmunityAuraEffects`, `ClassifyNPCStunDR`, `HasImmunityGuardAura`, `IsTemporarilyCCImmune`, `NotifyImmunityDataChanged`), startup/events, UI hooks and data-safe storage initialization need explicit ownership mapping and isolation. This prevents an unfinished build from writing production data or installing overlapping runtime state.
+- Critical storage caution: original `Storage.Initialize()` invokes `ResetSchema()` for unexpected schema versions or failed validation. Do not enable this path without confirming existing HearthDB filename/schema and non-destructive behaviour against actual data. Preserve original learner semantics while adding safety at the startup integration boundary.
+- No host code, main branches, source prototype, Slice 8, UI positioning or PR changed. No compiler or runtime PASS asserted.
+
 ## Exact Next Step
-**Build functional DLSI next.** Verify prototype HEAD, map prototype vs main function-level dependencies, lift advanced learner into DLSI with thin SCRM host adapters, retain original storage/semantics, and produce real provider integration test candidate. Do not repeat hook-only validation before starting. See authoritative plan above.
+**Continue the first runnable DLSI build.** Using the five staged private loaders, map and lift only the immunity-specific prototype-vs-main host helper dependencies into scoped adapters; establish event and startup ownership, inspect HearthDB initialization for safety, integrate strict three-state RegisterImmunityProvider with no legacy learning fallback; only then invoke loader functions in source TOC order. Do not alter original learner algorithms or activate unfinished learners. Do not repeat hook-only validation before starting. See authoritative plan above.
