@@ -23,18 +23,18 @@
 - Preserve the proven conservative learner behavior and exclusions (player targets, temporary immunity, TempCC, reflection, DR, death, ambiguous IMMUNE/IMMUNE2) during extraction.
 - Preserve the HearthDB database filename `SuperCleveRoidMacros_Immunity.db` and schema/learner data, without destructive migration.
 - SCRM legacy `CleveRoids_ImmunityData` records remain untouched, and built-in behavior is unchanged when selected.
-- External provider selection must avoid competing automatic learners and contradictory sources. Proposed behavior: one selected authoritative provider, built-in default; storage failures require explicit status and agreed fallback rather than silent data mixing.
+- External provider selection must prevent competing automatic learners and contradictory sources. **Agreed: no hybridisation or silent failover.** SCRM Built-in is the default and behaves unchanged for ordinary users; when an external provider is selected, all automatic built-in learning/removal is dormant regardless of provider availability/health. Broken/unavailable external results are unknown, not `false`; both positive and negative immunity conditionals fail conservatively. Users explicitly select built-in to restore it.
 - No unsupported assumptions of cross-core runtime compatibility; vMaNGOS and Turtle/Octo need live validation.
 - SCRM `main` must stay an upstream mirror; do not move fork-only learner code there.
 
 ### Protocol / Data Model
 - SCRM hook implementation currently exposes `CleveRoids.RegisterImmunityProvider(id, displayName, check)`; `check(unitId, spellOrSchool)` must return a boolean. It also exposes `GetSelectedImmunityProvider`, `GetActiveImmunityProvider`, `IsExternalImmunityActive`, `QueryExternalImmunity`, and `SelectImmunityProvider`. This is an implemented *host draft*, not yet a runtime-proven contract.
-- Multiple providers can register. User selection is explicit and **account-wide** in `CleveRoidMacros.immunityProvider` (rather than per-character). SCRM built-in is default. Missing/failed selected providers currently fall back to built-in while retaining selection; provider failure disables that provider for the session. This fallback requires review for consistency with external storage/error handling.
+- Multiple providers can register. User selection is explicit and **account-wide** in `CleveRoidMacros.immunityProvider` (rather than per-character). SCRM built-in is default. The existing host draft currently falls back to built-in after a missing/failed selected provider; **this is a confirmed defect and must be corrected before DLSI integration**. Agreed contract: SCRM built-in runs only when explicitly selected or as the initial default. Any selected external provider is solely authoritative, even when missing, broken or unable to query; unknown/error must make both `[immune]` and `[noimmune]` fail conservatively, and no automatic built-in learning/removal resumes. Never blend external and legacy data. Preserve the selected provider and existing storage without migration or deletion.
 - The relevant upstream query entry point is `CleveRoids.CheckImmunity(unit, spellOrSchool)`; upstream has several independent automatic writes, including direct SavedVariables writes, so a query wrapper alone is insufficient.
 - Existing branch-specific implementation and detailed learner semantics: `Seraphic8x2244/SuperCleveRoidMacros`, `design/temp-cc-immunity`, `docs/CC-DR-IMMUNITY-REWORK.md`; historical reference commit `3b37d154` for the agreed upstream hook scope. Re-read the active prototype branch HEAD before extraction.
 
 ### Active Decisions
-- Before treating the host hook as an upstream PR candidate, review double-delegation through `CheckImmunity`/`CheckCCImmunity`, fallback correctness, UI placement, every automatic mutation path and Lua 5.0.3 compile compatibility. Keep the API generic, with no DLSI-specific references in SCRM.
+- Before treating the host hook as an upstream PR candidate, review double-delegation through `CheckImmunity`/`CheckCCImmunity`, correct the prohibited built-in fallback on external-provider failure, tri-state conditional handling, UI placement, every automatic mutation path and Lua 5.0.3 compile compatibility. Keep the API generic, with no DLSI-specific references in SCRM.
 - Decide which presentation/management functions remain accessible through host SCRM and which are DLSI-owned.
 
 ## Recent Relevant Commits
@@ -55,7 +55,7 @@
 - SCRM hook diff reviewed: 4 files, 180 additions, 3 deletions. Targeted source presence checks passed; no canonical Lua 5.0.3 compiler pass or comprehensive test suite was run. The host no-provider macro-window/conditional behaviour was reported working in-game.
 
 ## Current Issues
-- Host hook draft exists but is not yet fully validated or PR-ready. Check nested immunity-query routing, chosen failover policy, macro UI placement and complete learner mutation coverage before dependent DLSI implementation.
+- Host hook draft exists but is not yet fully validated or PR-ready. Check nested immunity-query routing, enforce the agreed no-hybrid/no-failover contract, macro UI placement and complete learner mutation coverage before dependent DLSI implementation.
 - The five dedicated advanced immunity modules also depend on fork-specific `Utility.lua` logic and startup wiring.
 - Full historical evidence trail for resolved alert display remains incomplete in the prototype.
 
