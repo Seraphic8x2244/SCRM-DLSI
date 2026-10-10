@@ -1081,26 +1081,19 @@ function Storage.Initialize()
             return setError("schema", "schema creation failed: " .. tostring(createError))
         end
     elseif version ~= Storage.SCHEMA_VERSION then
-        local reset, resetError = Storage.ResetSchema(
-            "schema version " .. tostring(version) .. " replaced by v" .. tostring(Storage.SCHEMA_VERSION)
-        )
-        if not reset then
-            Storage.Close()
-            return false, resetError
-        end
-        return true
+        -- DLSI startup must never reset existing HearthDB records implicitly.
+        -- A mismatched schema is unavailable until an explicit recovery decision.
+        Storage.Close()
+        return setError("schema", "unsupported existing schema version " .. tostring(version) ..
+            " (expected " .. tostring(Storage.SCHEMA_VERSION) .. "); data preserved")
     end
 
     local valid, validationError = validateSchema()
     if not valid then
-        local reset, resetError = Storage.ResetSchema(
-            "schema validation failed: " .. tostring(validationError)
-        )
-        if not reset then
-            Storage.Close()
-            return false, resetError
-        end
-        return true
+        -- Corrupt/incompatible schema is not permission to destroy learner data.
+        Storage.Close()
+        return setError("schema", "existing schema validation failed: " ..
+            tostring(validationError) .. "; data preserved")
     end
 
     clearError()
