@@ -17,10 +17,19 @@
 
 **Boundaries:** strict no-hybrid authority, no built-in automatic learner while external selected; no learner redesign, no fork logic in generic host hook, no source-branch cleanup before equivalence, no UI positioning, Slice 8, `main` changes or PR. **Next action is DLSI code development, not another host-only audit.** Existing hook compilation/provider runtime checks remain open until genuinely executed.
 
+## 2026-10-10 Single-file data-safety integration checkpoint (0.1.2-dev)
+- Resumed from `eac1983c97c483d147ec5134ff6b4ac2e70f208c`; remote `dev` matched exactly. Frozen SCRM `immunities-hook` was independently verified unchanged at `bc0a488b051775f128b3d05db03876b15e747061`.
+- In the one staged `SCRM-DLSI.lua`, changed only the two **automatic** HearthDB `Storage.Initialize()` recovery branches: incompatible pre-existing `PRAGMA user_version` and failed pre-existing schema probes now close the handle, report a schema error, and preserve records. The original explicit `Storage.ResetSchema()` implementation remains for deliberate management actions. No evidence inference or learning algorithms were edited.
+- TOC advanced to `0.1.2-dev` and now loads exactly one Lua source, `SCRM-DLSI.lua`. Removed the `locales/enUS.lua` loader entry: it contains only a template comment and has no runtime content.
+- Verified via actual remote file inspection: exactly five preserved module loader definitions; **zero invocation sites**; one `Storage.ResetSchema()` definition but no call from `Storage.Initialize()`; both fail-closed schema branches exist; TOC has exactly one Lua loader. This is targeted static inspection **PASS**, not a Lua 5.0.3 compiler check.
+- **NOT RUN:** canonical Lua 5.0.3 compilation (no executable checker/checked-out source available in this connector-only session), automated in-game tests or HearthDB live data checks. The plugin remains **not runnable**: dependencies/host helper extraction, startup/event ownership, production three-state provider adapter, query mapping and safe module activation are outstanding. No runtime outcome is claimed.
+- No SCRM hook/main, DLSI main, prototype source branch, Slice 8, UI positioning or PR touched.
+- **Next coding task:** Map the actual `Utility.lua`/`Core.lua` immunity-specific helper definitions and usages to the preserved modules, implement scoped helper adapters, then wire safe initialization and explicit provider registration; do not call dormant module loaders before dependencies and authority isolation are complete. Keep original learner algorithms and DB schema intact.
+
 ## Current
 - User-approved implementation layout: **one DLSI Lua file only**, `SCRM-DLSI.lua`. The first runnable build must respect that constraint.
 - Branch: `dev`
-- Version: `0.1.1-dev` (single-source extraction staged; module loaders intentionally dormant)
+- Version: `0.1.2-dev` (single-source data-safe initialization guard staged; module loaders intentionally dormant)
 - Development checkpoint before this documentation update: `9722816f9c0feee47406fe7f274a587ccd5253df`. Verify the live `dev` HEAD before resuming.
 - Stable baseline: None; `main` is the README-only repository baseline.
 - Goal: Extract the advanced SCRM immunity system into an independently maintained companion addon.
@@ -145,4 +154,4 @@ Use only a disposable test addon registering a deterministic provider with `Clev
 - No host code, main branches, source prototype, Slice 8, UI positioning or PR changed. No compiler or runtime PASS asserted.
 
 ## Exact Next Step
-**Continue the first runnable DLSI build.** Using the five staged private loaders, map and lift only the immunity-specific prototype-vs-main host helper dependencies into scoped adapters; establish event and startup ownership, inspect HearthDB initialization for safety, integrate strict three-state RegisterImmunityProvider with no legacy learning fallback; only then invoke loader functions in source TOC order. Do not alter original learner algorithms or activate unfinished learners. Do not repeat hook-only validation before starting. See authoritative plan above.
+**Continue the first runnable DLSI build after the 0.1.2-dev fail-closed HearthDB guard.** Using the five staged private loaders, map and lift only the immunity-specific prototype-vs-main host helper dependencies into scoped adapters; establish event and startup ownership, inspect HearthDB initialization for safety, integrate strict three-state RegisterImmunityProvider with no legacy learning fallback; only then invoke loader functions in source TOC order. Do not alter original learner algorithms or activate unfinished learners. Do not repeat hook-only validation before starting. See authoritative plan above.
