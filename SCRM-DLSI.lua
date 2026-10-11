@@ -4446,85 +4446,37 @@ local function RefreshAll()
     RefreshTargetPanel()
 end
 
+-- Host-owned manual/static immunity records and backups are strictly read-only.
+-- DLSI does not administer SCRM's legacy SavedVariables.
 local function EnsureBackupTable()
-    CleveRoidMacros = CleveRoidMacros or {}
-    CleveRoidMacros.immunityBackups = CleveRoidMacros.immunityBackups or {}
-    return CleveRoidMacros.immunityBackups
+    if CleveRoidMacros and type(CleveRoidMacros.immunityBackups) == "table" then
+        return CleveRoidMacros.immunityBackups
+    end
+    return {}
+end
+
+local function LegacyManagementUnavailable()
+    CleveRoids.Print("Manual immunity storage and backups remain owned by SCRM; DLSI does not modify them.")
 end
 
 local function BackupCurrent(reason)
-    local backups = EnsureBackupTable()
-    local stamp = time and time() or 0
-    local label
-
-    if date then
-        if stamp and stamp > 0 then
-            label = date("%Y-%m-%d %H:%M:%S", stamp)
-        else
-            label = date("%Y-%m-%d %H:%M:%S")
-        end
-    end
-    if not label then
-        label = "Backup " .. tostring(table.getn(backups) + 1)
-    end
-
-    table.insert(backups, {
-        timestamp = stamp,
-        label = label,
-        immunityDataVersion = DATA_VERSION,
-        reason = reason,
-        data = DeepCopy(CleveRoids_ImmunityData or {}),
-    })
-
-    CleveRoids.Print("Manual/static override backup created: " .. label)
-    if historyDialog and historyDialog:IsShown() then
-        historyDialog.index = table.getn(backups)
-        historyDialog.Refresh()
-    end
+    LegacyManagementUnavailable()
 end
 
 local function NotifyDataChanged()
-    if CleveRoids.NotifyImmunityDataChanged then
-        CleveRoids.NotifyImmunityDataChanged()
-    else
-        RefreshAll()
-    end
+    if CleveRoids.RefreshImmunityUI then CleveRoids.RefreshImmunityUI() end
 end
 
 local function ClearCCStorage(key)
-    CleveRoids_ImmunityData = CleveRoids_ImmunityData or {}
-    if key == "*" then
-        for storageKey in pairs(CleveRoids_ImmunityData) do
-            if storageKey == "cc" or string.sub(storageKey, 1, 3) == "cc_" then
-                CleveRoids_ImmunityData[storageKey] = nil
-            end
-        end
-        CleveRoids.Print("Cleared all CC immunity data")
-    else
-        CleveRoids_ImmunityData[key] = nil
-        CleveRoids.Print("Cleared " .. tostring(key) .. " immunity data")
-    end
-    NotifyDataChanged()
+    LegacyManagementUnavailable()
 end
 
 local function ClearSpellStorage(key)
-    CleveRoids_ImmunityData = CleveRoids_ImmunityData or {}
-    if key == "*" then
-        for storageKey in pairs(SPELL_GENERAL_KEYS) do
-            CleveRoids_ImmunityData[storageKey] = nil
-        end
-        CleveRoids.Print("Cleared all spell/school immunity data")
-    else
-        CleveRoids_ImmunityData[key] = nil
-        CleveRoids.Print("Cleared " .. tostring(key) .. " immunity data")
-    end
-    NotifyDataChanged()
+    LegacyManagementUnavailable()
 end
 
 local function ClearAllStorage()
-    CleveRoids_ImmunityData = {}
-    CleveRoids.Print("Cleared all manual/static immunity overrides")
-    NotifyDataChanged()
+    LegacyManagementUnavailable()
 end
 
 local function BuildClearOptions(mode)
@@ -4712,10 +4664,7 @@ local function CreateHistoryDialog(parent)
         local backups = EnsureBackupTable()
         local selectedBackup = backups[frame.index]
         if not selectedBackup then return end
-        CleveRoids_ImmunityData = DeepCopy(selectedBackup.data or {})
-        CleveRoids.Print("Restored immunity backup: " .. tostring(selectedBackup.label or frame.index))
-        NotifyDataChanged()
-        frame.Refresh()
+        LegacyManagementUnavailable()
     end)
 
     local deleteButton = CreateButton(frame, "Delete", 90, 24)
@@ -4725,13 +4674,7 @@ local function CreateHistoryDialog(parent)
         local selectedBackup = backups[frame.index]
         if not selectedBackup then return end
         local label = selectedBackup.label or tostring(frame.index)
-        table.remove(backups, frame.index)
-        if frame.index > table.getn(backups) then
-            frame.index = table.getn(backups)
-        end
-        if frame.index < 1 then frame.index = 1 end
-        CleveRoids.Print("Deleted immunity backup: " .. tostring(label))
-        frame.Refresh()
+        LegacyManagementUnavailable()
     end)
 
     local close = CreateButton(frame, "Close", 90, 24)
