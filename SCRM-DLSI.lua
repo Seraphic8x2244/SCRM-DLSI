@@ -359,10 +359,10 @@ end
 -- END Chunk B factory; no calls or registrations.
 
 -- BEGIN preserved source: ImmunityObservations.lua (design/temp-cc-immunity)
-local function LoadOriginalImmunityObservations()
+local function LoadOriginalImmunityObservations(namespace)
 local _G = _G or getfenv(0)
-local CleveRoids = _G.CleveRoids or {}
-_G.CleveRoids = CleveRoids
+local CleveRoids = namespace -- DLSI private namespace; never alias the host
+-- No host-global assignment: module exports remain private.
 
 -- Normalized immunity evidence input seam.
 --
@@ -1060,10 +1060,10 @@ end
 -- END preserved source: ImmunityObservations.lua
 
 -- BEGIN preserved source: ImmunityStorage.lua (design/temp-cc-immunity)
-local function LoadOriginalImmunityStorage()
+local function LoadOriginalImmunityStorage(namespace)
 local _G = _G or getfenv(0)
-local CleveRoids = _G.CleveRoids or {}
-_G.CleveRoids = CleveRoids
+local CleveRoids = namespace -- DLSI private namespace; never alias the host
+-- No host-global assignment: module exports remain private.
 
 local Storage = CleveRoids.ImmunityStorage or {}
 CleveRoids.ImmunityStorage = Storage
@@ -1471,10 +1471,10 @@ end
 -- END preserved source: ImmunityStorage.lua
 
 -- BEGIN preserved source: ImmunityTransient.lua (design/temp-cc-immunity)
-local function LoadOriginalImmunityTransient()
+local function LoadOriginalImmunityTransient(namespace)
 local _G = _G or getfenv(0)
-local CleveRoids = _G.CleveRoids or {}
-_G.CleveRoids = CleveRoids
+local CleveRoids = namespace -- DLSI private namespace; never alias the host
+-- No host-global assignment: module exports remain private.
 
 -- Slice 3 transient-only immunity safety reducer.
 --
@@ -2040,10 +2040,10 @@ end
 -- END preserved source: ImmunityTransient.lua
 
 -- BEGIN preserved source: ImmunityKnowledge.lua (design/temp-cc-immunity)
-local function LoadOriginalImmunityKnowledge()
+local function LoadOriginalImmunityKnowledge(namespace)
 local _G = _G or getfenv(0)
-local CleveRoids = _G.CleveRoids or {}
-_G.CleveRoids = CleveRoids
+local CleveRoids = namespace -- DLSI private namespace; never alias the host
+-- No host-global assignment: module exports remain private.
 
 -- Slice 7 production knowledge backend with centralized learning diagnostics.
 --
@@ -3386,7 +3386,7 @@ end
 -- END preserved source: ImmunityKnowledge.lua
 
 -- BEGIN preserved source: ImmunityUI.lua (design/temp-cc-immunity)
-local function LoadOriginalImmunityUI()
+local function LoadOriginalImmunityUI(namespace)
 --[[
     Immunity testing/management UI
     Production immunity inspection/management surface. No inference lives here.
@@ -3394,7 +3394,7 @@ local function LoadOriginalImmunityUI()
     SavedVariables table is retained only for explicit manual/static overrides.
 ]]
 local _G = _G or getfenv(0)
-local CleveRoids = _G.CleveRoids or {}
+local CleveRoids = namespace -- DLSI private namespace; never alias the host
 
 local DATA_VERSION = 1
 local MAIN_WIDTH = 710
@@ -5033,4 +5033,6 @@ CreateMainFrame()
 end
 -- END preserved source: ImmunityUI.lua
 
+-- Chunk C: loaders now receive an explicit private namespace. They remain dormant
+-- until UI legacy writes, adapter binding, DB lifecycle, and startup are safe.
 -- Deliberately no module invocation before integration adapters are ready.
