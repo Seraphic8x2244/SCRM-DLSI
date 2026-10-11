@@ -5,6 +5,359 @@
 local ADDON_NAME = "SCRM-DLSI"
 local ADDON_VERSION = GetAddOnMetadata(ADDON_NAME, "Version")
 
+-- BEGIN Chunk B: isolated helper and read-only host-adapter factory (DORMANT).
+-- The factory is intentionally not invoked until Chunk C establishes safe owners.
+-- Never mutate host CleveRoids methods or the legacy immunity SavedVariables here.
+local function CreateDLSIHostAdapters(host)
+    local adapters = {}
+    local CleveRoids = host -- compatibility for original helper bodies; read-only
+    adapters.NormalizeGUID = function(guid)
+        if not guid then return nil end
+        return tostring(guid)
+    end
+    adapters.GetGUID = function(unit)
+        if not unit or type(GetUnitGUID) ~= "function" then return nil end
+        return adapters.NormalizeGUID(GetUnitGUID(unit))
+    end
+    adapters.GetCreatureEntry = function(unit)
+        if not unit or type(UnitCreatureID) ~= "function" then return nil end
+        return UnitCreatureID(unit)
+    end
+    -- Host's ClassicAPI wrappers remain authoritative for spell data.
+    adapters.ClassicAPI = {}
+    local spellMethods = {"GetSpellSchoolByID", "GetSpellMechanicByID", "GetSpellEffectMechanics", "GetSpellEffectInfo", "GetSpellDispelType"}
+    for _, method in ipairs(spellMethods) do
+        local name = method
+        adapters.ClassicAPI[name] = function(...)
+            local api = host.ClassicAPI
+            if api and type(api[name]) == "function" then return api[name](...) end
+            return nil
+        end
+    end
+    adapters.Print = function(message)
+        if type(host.Print) == "function" then return host.Print(message) end
+    end
+    adapters.NotifyImmunityDataChanged = function()
+        -- Local consumers are installed in Chunk C. Never call the host's legacy notifier.
+        if adapters.OnKnowledgeChanged then adapters.OnKnowledgeChanged() end
+    end
+    adapters.GetImmunityDebugSnapshot = function()
+        -- Host diagnostics are optional and strictly read-only. Never alias its journal.
+        if type(host.GetImmunityDebugSnapshot) == "function" then
+            return host.GetImmunityDebugSnapshot()
+        end
+        return nil
+    end
+    -- Host classification/cast evidence is read-only; no guessed NPC DR bucket.
+    local GetSpellCCType = function(id)
+        if type(host.GetSpellCCType) == "function" then return host.GetSpellCCType(id) end
+        return nil
+    end
+
+local IMMUNITY_AURAS = {
+    all = {
+        [498] = true,    -- Divine Protection (Rank 1)
+        [5573] = true,   -- Divine Protection (Rank 2)
+        [642] = true,    -- Divine Shield (Rank 1)
+        [1020] = true,   -- Divine Shield (Rank 2)
+        [13874] = true,  -- Divine Shield
+        [11958] = true,  -- Ice Block
+        [27619] = true,  -- Ice Block (alternate)
+    },
+
+    spell = {
+        -- These NPC auras make magic spells return IMMUNE rather than merely
+        -- absorbing or reducing their damage.
+        [7121] = true,   -- Anti-Magic Shield
+        [19645] = true,  -- Anti-Magic Shield (variant)
+        [24021] = true,  -- Anti-Magic Shield (variant)
+    },
+
+    physical = {
+        [1022] = true,   -- Blessing of Protection (Rank 1)
+        [5599] = true,   -- Blessing of Protection (Rank 2)
+        [10278] = true,  -- Blessing of Protection (Rank 3)
+    },
+
+    root = {
+        [1044] = true,   -- Blessing of Freedom
+    },
+
+    snare = {
+        [1044] = true,   -- Blessing of Freedom
+    },
+
+    reflect = {
+        -- Spell Reflection
+        [9941] = true,
+        [9943] = true,
+        [10074] = true,
+        [11818] = true,
+        [21118] = true,
+
+        -- School-specific Reflectors (Engineering items)
+        [23097] = true,  -- Fire Reflector
+        [23131] = true,  -- Frost Reflector
+        [23132] = true,  -- Shadow Reflector
+        [23178] = true,  -- Nature Reflector
+        [23216] = true,  -- Arcane Reflector
+
+        -- Multi-school Reflect (NPC abilities)
+        [13022] = true,  -- Fire and Arcane Reflect
+        [19595] = true,  -- Shadow and Frost Reflect
+
+        -- Generic Reflection buffs
+        [3651] = true,   -- Shield of Reflection
+        [9906] = true,   -- Reflection
+        [10831] = true,  -- Reflection Field
+        [17106] = true,  -- Reflection
+        [17107] = true,  -- Reflection
+        [17108] = true,  -- Reflection
+        [20223] = true,  -- Magic Reflection
+        [20619] = true,  -- Magic Reflection
+        [22067] = true,  -- Reflection
+        [23920] = true,  -- Shield Reflection
+        [23921] = true,  -- Shield Reflection
+        [27564] = true,  -- Reflection
+    },
+}
+
+local IMMUNITY_AURA_GUARD_ORDER = { "all", "spell", "physical", "reflect" }
+
+-- Return the active aura spell ID for one semantic bucket, or nil.
+-- Matching is numeric and locale-independent; direct by-ID lookup also sees
+-- auras outside the visible slots.
+local function GetActiveImmunityAura(unit, auraType)
+    if not UnitExists(unit) then return nil end
+    if not C_UnitAuras or not C_UnitAuras.GetUnitAuraBySpellID then return nil end
+
+    local auraIDs = IMMUNITY_AURAS[auraType]
+    if not auraIDs then return nil end
+
+    for spellID in pairs(auraIDs) do
+        if C_UnitAuras.GetUnitAuraBySpellID(unit, spellID, "HELPFUL") then
+            return spellID
+        end
+    end
+
+    return nil
+end
+
+-- Compatibility learning guard: any listed temporary protection or reflection
+-- still makes a failed/IMMUNE observation inconclusive. Reflection is returned
+-- as its own bucket and is never promoted to an immunity type.
+local function HasImmunityGuardAura(unit)
+    for _, auraType in ipairs(IMMUNITY_AURA_GUARD_ORDER) do
+        local spellID = GetActiveImmunityAura(unit, auraType)
+        if spellID then
+            local spellName = C_Spell.GetSpellName(spellID) or ("SpellID:" .. spellID)
+            return spellName, auraType, spellID
+        end
+    end
+
+    return nil
+end
+
+-- Curated encounter auras that temporarily grant immunity to specific CC mechanics.
+-- Keyed by creature entry -> aura spell ID -> canonical immunity type.
+-- Keep this list deliberately small and evidence-backed; this is not DBC inference.
+local TEMP_CC_IMMUNITIES = {
+    [15516] = { -- Battleguard Sartura
+        [26083] = { stun = true }, -- Whirlwind: temporary stun immunity
+    },
+}
+
+-- Resolve the creature-template entry through ClassicAPI. This keeps GUID
+-- layout/client-token details out of the TempCCImmune subsystem.
+local function GetCreatureEntry(unit)
+    if not unit then return nil end
+    return UnitCreatureID(unit)
+end
+
+-- Return true when a curated aura currently explains this creature's immunity
+-- to exactly the requested CC mechanic. Optional second return is the aura ID.
+local function IsTemporarilyCCImmune(unit, ccType)
+    if not unit or not ccType or not UnitExists(unit) then
+        return false
+    end
+
+    -- Typed temporary CC auras apply to players and NPCs alike. These are live
+    -- state only and must never be promoted to permanent learned immunity.
+    local typedAuraID = GetActiveImmunityAura(unit, ccType)
+    if typedAuraID then
+        return true, typedAuraID
+    end
+
+    local creatureEntry = GetCreatureEntry(unit)
+    local auraRules = creatureEntry and TEMP_CC_IMMUNITIES[creatureEntry]
+    if not auraRules then
+        return false
+    end
+
+    if not C_UnitAuras or not C_UnitAuras.GetUnitAuraBySpellID then
+        return false
+    end
+
+    for auraID, mechanics in pairs(auraRules) do
+        if mechanics[ccType] and C_UnitAuras.GetUnitAuraBySpellID(unit, auraID) then
+            return true, auraID
+        end
+    end
+
+    return false
+end
+
+adapters.IsTemporarilyCCImmune = IsTemporarilyCCImmune
+
+-- Slice 3 normalized-transient bridge. Keep the curated numeric definitions
+-- authoritative here so the generalized backend does not duplicate them.
+function adapters.GetTransientImmunityAuraEffects(spellID, mobID)
+    spellID = tonumber(spellID)
+    mobID = tonumber(mobID)
+    if not spellID then return {} end
+
+    local effects = {}
+    local seen = {}
+
+    local function addEffect(source, dimension, auraType)
+        local key = tostring(source) .. ":" .. tostring(dimension or auraType or "")
+        if seen[key] then return end
+        seen[key] = true
+        table.insert(effects, {
+            source = source,
+            dimension = dimension,
+            auraType = auraType,
+            auraID = spellID,
+        })
+    end
+
+    for auraType, auraIDs in pairs(IMMUNITY_AURAS) do
+        if auraIDs[spellID] then
+            if auraType == "reflect" then
+                addEffect("reflection", nil, auraType)
+            elseif auraType == "root" or auraType == "snare" then
+                addEffect("temporary_cc", auraType, auraType)
+            else
+                addEffect("temporary_aura", auraType, auraType)
+            end
+        end
+    end
+
+    local mobRules = mobID and TEMP_CC_IMMUNITIES[mobID]
+    local mechanics = mobRules and mobRules[spellID]
+    if mechanics then
+        for ccType in pairs(mechanics) do
+            addEffect("temporary_cc", ccType, "temp_cc")
+        end
+    end
+
+    return effects
+end
+
+adapters.HasImmunityGuardAura = HasImmunityGuardAura
+
+
+local STUN_CONTROL_DR_OVERRIDES = {
+    [7922] = true,   -- Charge Stun
+    [20253] = true,  -- Intercept Stun Rank 1
+    [20614] = true,  -- Intercept Stun Rank 2
+    [20615] = true,  -- Intercept Stun Rank 3
+}
+local KIDNEY_SHOT_IDS = {
+    [408] = true,
+    [8643] = true,
+}
+
+local function IsKidneyShotSpell(spellID)
+    if KIDNEY_SHOT_IDS[spellID] then return true end
+
+    -- Vanilla Rogue family bit 21 (0x00200000) is Kidney Shot. Prefer the
+    -- family mask so custom ranks that preserve DBC family data also classify correctly.
+    if GetSpellRecField then
+        local familyName = GetSpellRecField(spellID, "spellFamilyName")
+        local familyFlags = GetSpellRecField(spellID, "spellFamilyFlags")
+        if familyName == 8 and familyFlags then -- SPELLFAMILY_ROGUE
+            local kidneyBit = 2097152 -- 0x00200000
+            if math.mod(math.floor(familyFlags / kidneyBit), 2) == 1 then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function WasClientInitiatedSpell(spellID)
+    -- Nampower SPELL_CAST_EVENT fires only for spells initiated by the client.
+    -- Proc/trigger spell IDs reach server SPELL_GO/MISS without their own entry.
+    local cast = host.pendingCasts and CleveRoids.pendingCasts[spellID]
+    if not cast or not cast.timestamp then return false end
+    local age = GetTime() - cast.timestamp
+    return age >= 0 and age <= 5
+end
+
+local function GetSpellImmunityDRType(spellID)
+    if GetSpellCCType(spellID) ~= "stun" then return nil end
+
+    if IsKidneyShotSpell(spellID) then
+        return "stun_kidneyshot"
+    end
+
+    -- These stun subspells are internally triggered but explicitly belong to
+    -- controlled-stun DR in Vanilla.
+    if STUN_CONTROL_DR_OVERRIDES[spellID] then
+        return "stun_control"
+    end
+
+    if WasClientInitiatedSpell(spellID) then
+        return "stun_control"
+    end
+
+    return "stun_trigger"
+end
+
+CleveRoids.GetSpellImmunityDRType = GetSpellImmunityDRType
+
+-- Generalized-backend DR classification must not reuse the legacy fallback that
+-- guesses every non-client-initiated stun is triggered. For the player's own
+-- casts the existing runtime cast evidence is usable. For another caster it is
+-- only safe to classify spell IDs whose Vanilla bucket is explicit.
+function adapters.ClassifyNPCStunDR(spellID, casterGUID)
+    spellID = tonumber(spellID)
+    if not spellID or GetSpellCCType(spellID) ~= "stun" then
+        return nil, false, "not_stun"
+    end
+
+    if IsKidneyShotSpell(spellID) then
+        return "stun_kidneyshot", true, "kidney_shot"
+    end
+
+    if STUN_CONTROL_DR_OVERRIDES[spellID] then
+        return "stun_control", true, "explicit_control"
+    end
+
+    local playerGUID = adapters.GetGUID and adapters.GetGUID("player") or nil
+    if playerGUID and casterGUID then
+        if adapters.NormalizeGUID then
+            playerGUID = CleveRoids.NormalizeGUID(playerGUID)
+            casterGUID = CleveRoids.NormalizeGUID(casterGUID)
+        end
+        if playerGUID == casterGUID then
+            if WasClientInitiatedSpell(spellID) then
+                return "stun_control", true, "player_client_cast"
+            end
+            return "stun_trigger", true, "player_triggered"
+        end
+    end
+
+    return nil, false, "controlled_vs_triggered_unknown"
+end
+
+
+    return adapters
+end
+-- END Chunk B factory; no calls or registrations.
+
 -- BEGIN preserved source: ImmunityObservations.lua (design/temp-cc-immunity)
 local function LoadOriginalImmunityObservations()
 local _G = _G or getfenv(0)
