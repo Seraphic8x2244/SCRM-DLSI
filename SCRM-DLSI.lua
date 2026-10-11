@@ -1428,6 +1428,18 @@ function Storage.Initialize()
     Storage.schemaVersion = version
 
     if version == 0 then
+        -- user_version=0 alone does not prove this file is a new empty DB.
+        -- An existing unversioned/partial schema must never be modified.
+        local inspected, existingTables = queryInternal(
+            "SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1")
+        if not inspected or table.getn(existingTables) > 0 then
+            Storage.Close()
+            if not inspected then
+                return setError("schema", "could not inspect unversioned schema: " ..
+                    tostring(existingTables) .. "; data preserved")
+            end
+            return setError("schema", "unversioned database already contains tables; data preserved")
+        end
         local created, createError = createSchema()
         if not created then
             Storage.Close()
