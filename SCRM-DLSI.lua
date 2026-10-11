@@ -30,7 +30,7 @@ local function CreateDLSIHostAdapters(host)
         local name = method
         adapters.ClassicAPI[name] = function(...)
             local api = host.ClassicAPI
-            if api and type(api[name]) == "function" then return api[name](...) end
+            if api and type(api[name]) == "function" then return api[name](unpack(arg)) end
             return nil
         end
     end
