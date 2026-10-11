@@ -171,7 +171,7 @@ local TEMP_CC_IMMUNITIES = {
 -- layout/client-token details out of the TempCCImmune subsystem.
 local function GetCreatureEntry(unit)
     if not unit then return nil end
-    return UnitCreatureID(unit)
+    return adapters.GetCreatureEntry(unit)
 end
 
 -- Return true when a curated aura currently explains this creature's immunity
@@ -316,7 +316,7 @@ local function GetSpellImmunityDRType(spellID)
     return "stun_trigger"
 end
 
-CleveRoids.GetSpellImmunityDRType = GetSpellImmunityDRType
+adapters.GetSpellImmunityDRType = GetSpellImmunityDRType
 
 -- Generalized-backend DR classification must not reuse the legacy fallback that
 -- guesses every non-client-initiated stun is triggered. For the player's own
@@ -339,8 +339,8 @@ function adapters.ClassifyNPCStunDR(spellID, casterGUID)
     local playerGUID = adapters.GetGUID and adapters.GetGUID("player") or nil
     if playerGUID and casterGUID then
         if adapters.NormalizeGUID then
-            playerGUID = CleveRoids.NormalizeGUID(playerGUID)
-            casterGUID = CleveRoids.NormalizeGUID(casterGUID)
+            playerGUID = adapters.NormalizeGUID(playerGUID)
+            casterGUID = adapters.NormalizeGUID(casterGUID)
         end
         if playerGUID == casterGUID then
             if WasClientInitiatedSpell(spellID) then
