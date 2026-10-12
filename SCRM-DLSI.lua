@@ -5100,11 +5100,15 @@ local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
         return nil
     end
     if type(UnitExists) ~= "function" or not unitId or
-        not UnitExists(unitId) or UnitIsPlayer(unitId) then return nil end
-    if type(UnitCreatureID) ~= "function" then return nil end
-    local mobID = tonumber(UnitCreatureID(unitId))
-    if not mobID or mobID <= 0 or mobID ~= math.floor(mobID) then
-        return nil
+        not UnitExists(unitId) then return nil end
+    local playerTarget = UnitIsPlayer(unitId) and true or false
+    local mobID = nil
+    if not playerTarget then
+        if type(UnitCreatureID) ~= "function" then return nil end
+        mobID = tonumber(UnitCreatureID(unitId))
+        if not mobID or mobID <= 0 or mobID ~= math.floor(mobID) then
+            return nil -- unresolved identity must never query permanent facts
+        end
     end
 
     local dimensions, complete, named
@@ -5147,21 +5151,29 @@ local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
             DLSI.IsTemporarilyCCImmune(unitId, dimension) then
             return true
         end
-        local state = knowledge.GetDimensionState(mobID, dimension)
-        if state == "immune" then return true end
+        -- Player targets can have proven live auras, but must never consult
+        -- or write NPC-template knowledge based on their player identity.
+        if playerTarget then
+            anyUnknown = true
+        else
+            local state = knowledge.GetDimensionState(mobID, dimension)
+            if state == "immune" then return true end
 
-        -- The original learner records exact observed successes, not
-        -- speculative "cc"/"spell"/"all" vulnerability. Those broad queries
-        -- require their own fact, but for an exact action they only override
-        -- positively, and their absence must not block an established false.
-        if dimension ~= "all" and dimension ~= "cc" and
-            dimension ~= "spell" then
-            requiredFacts = requiredFacts + 1
-            if state ~= "vulnerable" then anyUnknown = true end
-        elseif named == dimension then
-            requiredFacts = requiredFacts + 1
-            if state ~= "vulnerable" then anyUnknown = true end
+            -- The original learner records exact observed successes, not
+            -- speculative "cc"/"spell"/"all" vulnerability. Those broad queries
+            -- require their own fact, but for an exact action they only override
+            -- positively, and their absence must not block an established false.
+            if dimension ~= "all" and dimension ~= "cc" and
+                dimension ~= "spell" then
+                requiredFacts = requiredFacts + 1
+                if state ~= "vulnerable" then anyUnknown = true end
+            elseif named == dimension then
+                requiredFacts = requiredFacts + 1
+                if state ~= "vulnerable" then anyUnknown = true end
+            end
         end
+
+
     end
     if requiredFacts > 0 and not anyUnknown then return false end
     return nil
@@ -5268,6 +5280,16 @@ local function PrepareDLSI()
                 table.insert(result.liveCC, entry)
             else
                 table.insert(result.liveSpell, entry)
+            end
+        end
+        for dimension in pairs(CC_DIMENSIONS) do
+            local active, typedAuraID = adapters.IsTemporarilyCCImmune(unit, dimension)
+            if active then
+                table.insert(result.liveCC, {
+                    immunityType = dimension,
+                    source = "typed temporary aura",
+                    detail = typedAuraID,
+                })
             end
         end
         return result
