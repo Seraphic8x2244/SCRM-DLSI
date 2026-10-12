@@ -24,22 +24,55 @@ local function CreateDLSIHostAdapters(host)
         return UnitCreatureID(unit)
     end
     -- Host's ClassicAPI wrappers remain authoritative for spell data.
+    -- The frozen generic host does not ship the prototype's extended
+    -- ClassicAPI helpers. Implement only those read-only adapters here.
     adapters.ClassicAPI = {}
     adapters.ClassicAPI.ResolveLiveCreatureID = function(guid)
-        local api = host.ClassicAPI
-        if api and type(api.ResolveLiveCreatureID) == "function" then
-            return api.ResolveLiveCreatureID(guid)
+        if guid == nil then return nil, nil, "missing_guid" end
+        if type(UnitTokenFromGUID) ~= "function" or
+            type(UnitGUID) ~= "function" or
+            type(UnitCreatureID) ~= "function" then
+            return nil, nil, "resolver_unavailable"
         end
-        return nil, nil, "resolver_unavailable"
+        local guidText = tostring(guid)
+        local unit = UnitTokenFromGUID(guidText)
+        if not unit then return nil, nil, "not_live" end
+        local liveGUID = UnitGUID(unit)
+        if not liveGUID or string.lower(tostring(liveGUID)) ~=
+            string.lower(guidText) then
+            return nil, nil, "stale_token"
+        end
+        local mobID = UnitCreatureID(unit)
+        if not mobID then return nil, unit, "not_creature" end
+        return tonumber(mobID), unit, "live"
     end
-    local spellMethods = {"GetSpellSchoolByID", "GetSpellMechanicByID", "GetSpellEffectMechanics", "GetSpellEffectInfo", "GetSpellDispelType"}
-    for _, method in ipairs(spellMethods) do
-        local name = method
-        adapters.ClassicAPI[name] = function(...)
-            local api = host.ClassicAPI
-            if api and type(api[name]) == "function" then return api[name](unpack(arg)) end
-            return nil
+    adapters.ClassicAPI.GetSpellSchoolByID = function(spellID)
+        if not spellID or type(GetSpellSchool) ~= "function" then
+            return nil, nil
         end
+        local id, name = GetSpellSchool(spellID)
+        if not id then return nil, nil end
+        return id - 1, name
+    end
+    adapters.ClassicAPI.GetSpellMechanicByID = function(spellID)
+        local api = host.ClassicAPI
+        if not api or type(api.GetSpellMechanicByID) ~= "function" then return nil end
+        return api.GetSpellMechanicByID(spellID)
+    end
+    adapters.ClassicAPI.GetSpellEffectMechanics = function(spellID)
+        local api = host.ClassicAPI
+        if not api or type(api.GetSpellEffectMechanics) ~= "function" then return nil end
+        return api.GetSpellEffectMechanics(spellID)
+    end
+    adapters.ClassicAPI.GetSpellEffectInfo = function(spellID)
+        if not spellID or not C_Spell or
+            type(C_Spell.GetSpellEffectInfo) ~= "function" then return nil end
+        return C_Spell.GetSpellEffectInfo(spellID)
+    end
+    adapters.ClassicAPI.GetSpellDispelType = function(spellID)
+        if not spellID or not C_Spell or
+            type(C_Spell.GetSpellDispelType) ~= "function" then return nil end
+        return C_Spell.GetSpellDispelType(spellID)
     end
     adapters.Print = function(message)
         if type(host.Print) == "function" then return host.Print(message) end
@@ -1060,7 +1093,9 @@ if CleveRoids.hasNampower then
 end
 
 frame:SetScript("OnEvent", function()
-    if not CleveRoids.DLSIEventsEnabled then return end
+    if not CleveRoids.DLSIEventsEnabled or
+        not CleveRoids.IsSelectedProvider or
+        not CleveRoids.IsSelectedProvider() then return end
     Pipeline.HandleNampowerEvent(event, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
 end)
 
@@ -4736,7 +4771,7 @@ local function CreateTargetPanel(parent)
     title:SetPoint("TOP", frame, "TOP", 0, -16)
     title:SetText("Current Target")
 
-    targetModel = CreateFrame("PlayerModel", "CleveRoidsImmunityTargetModel", frame)
+    targetModel = CreateFrame("PlayerModel", "SCRM_DLSI_ImmunityTargetModel", frame)
     targetModel:SetWidth(TARGET_MODEL_WIDTH)
     targetModel:SetHeight(TARGET_MODEL_HEIGHT)
     targetModel:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -46)
@@ -5006,17 +5041,25 @@ local function PrepareDLSI()
         return false
     end
     local api = host.ClassicAPI
+    -- Only the common host API is required. The additional prototype
+    -- readers are private read-only adapters defined above.
     local required = {
-        "GetSpellSchoolByID", "GetSpellMechanicByID",
-        "GetSpellEffectMechanics", "GetSpellEffectInfo",
-        "GetSpellDispelType", "ResolveLiveCreatureID"
+        "GetSpellMechanicByID", "GetSpellEffectMechanics"
     }
     for i = 1, table.getn(required) do
         if type(api[required[i]]) ~= "function" then return false end
     end
     if type(_G.C_Spell) ~= "table" or
         type(C_Spell.GetSpellName) ~= "function" or
-        type(C_Spell.GetSpellTexture) ~= "function" then
+        type(C_Spell.GetSpellTexture) ~= "function" or
+        type(C_Spell.GetSpellEffectInfo) ~= "function" or
+        type(C_Spell.GetSpellDispelType) ~= "function" or
+        type(_G.GetSpellSchool) ~= "function" or
+        type(_G.UnitTokenFromGUID) ~= "function" or
+        type(_G.UnitGUID) ~= "function" or
+        type(_G.UnitCreatureID) ~= "function" or
+        type(host.RegisterImmunityProvider) ~= "function" or
+        type(host.GetSelectedImmunityProvider) ~= "function" then
         return false
     end
     local adapters = CreateDLSIHostAdapters(host)
