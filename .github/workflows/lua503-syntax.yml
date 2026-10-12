@@ -1,0 +1,34 @@
+name: DLSI Lua 5.0.3 syntax
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - "SCRM-DLSI.lua"
+      - "SCRM-DLSI.toc"
+      - ".github/workflows/lua503-syntax.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lua503:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile against official Lua 5.0.3 parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output lua-5.0.3.tar.gz https://www.lua.org/ftp/lua-5.0.3.tar.gz
+          tar -xzf lua-5.0.3.tar.gz
+          LUA_SRC="$PWD/lua-5.0.3"
+          cc -O2 -fcommon -DLUA_OPNAMES -I"$LUA_SRC/include" -I"$LUA_SRC/src" \
+            "$LUA_SRC"/src/{lapi,lcode,ldebug,ldo,ldump,lfunc,lgc,llex,lmem,lobject,lopcodes,lparser,lstate,lstring,ltable,ltm,lundump,lvm,lzio}.c \
+            "$LUA_SRC/src/lib/lauxlib.c" "$LUA_SRC/src/luac/luac.c" \
+            "$LUA_SRC/src/luac/print.c" -lm -o ./luac503
+          ./luac503 -v
+          ./luac503 -p SCRM-DLSI.lua
