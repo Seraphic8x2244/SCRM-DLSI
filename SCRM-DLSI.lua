@@ -5108,11 +5108,20 @@ local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
         return nil
     end
 
-    local dimensions, complete
+    local dimensions, complete, named
     if type(spellOrSchool) == "string" and
         QUERY_DIMENSIONS[string.lower(spellOrSchool)] then
-        dimensions = { string.lower(spellOrSchool) }
-        complete = true
+        named = string.lower(spellOrSchool)
+        dimensions, complete = {}, true
+        local seen = {}
+        AddQueryDimension(dimensions, seen, named)
+        if MAGIC_SCHOOLS[named] then
+            AddQueryDimension(dimensions, seen, "spell")
+        end
+        if CC_DIMENSIONS[named] then
+            AddQueryDimension(dimensions, seen, "cc")
+        end
+        AddQueryDimension(dimensions, seen, "all")
     else
         local spellID = GetQuerySpellID(host, spellOrSchool)
         if not spellID or not DLSI.ImmunityObservations then return nil end
@@ -5122,29 +5131,40 @@ local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
     end
 
     local anyUnknown = not complete
+    local requiredFacts = 0
+    local _, liveAuraType
+    if DLSI.HasImmunityGuardAura then
+        _, liveAuraType = DLSI.HasImmunityGuardAura(unitId)
+    end
     for i = 1, table.getn(dimensions) do
         local dimension = dimensions[i]
-        -- Confirmed live guards count only for their documented type.
-        -- Reflection is a learning exclusion, not proof of immunity.
-        if DLSI.HasImmunityGuardAura then
-            local _, auraType = DLSI.HasImmunityGuardAura(unitId)
-            if auraType == "all" or auraType == dimension or
-                (auraType == "spell" and MAGIC_SCHOOLS[dimension]) then
-                return true
-            end
+        -- Positive broad immunity is authoritative; absent broad facts do
+        -- not negate an established *exact* vulnerability.
+        if liveAuraType == "all" or liveAuraType == dimension or
+            (liveAuraType == "spell" and MAGIC_SCHOOLS[dimension]) then
+            return true
         end
         if CC_DIMENSIONS[dimension] and DLSI.IsTemporarilyCCImmune and
             DLSI.IsTemporarilyCCImmune(unitId, dimension) then
             return true
         end
-
         local state = knowledge.GetDimensionState(mobID, dimension)
         if state == "immune" then return true end
-        if state ~= "vulnerable" then anyUnknown = true end
+
+        -- The original learner records exact observed successes, not
+        -- speculative "cc"/"spell"/"all" vulnerability. Those broad queries
+        -- require their own fact, but for an exact action they only override
+        -- positively, and their absence must not block an established false.
+        if dimension ~= "all" and dimension ~= "cc" and
+            dimension ~= "spell" then
+            requiredFacts = requiredFacts + 1
+            if state ~= "vulnerable" then anyUnknown = true end
+        elseif named == dimension then
+            requiredFacts = requiredFacts + 1
+            if state ~= "vulnerable" then anyUnknown = true end
+        end
     end
-    -- Only complete, independently proven vulnerability yields false.
-    -- Missing facts, hypotheses, errors and absent identity remain nil.
-    if not anyUnknown then return false end
+    if requiredFacts > 0 and not anyUnknown then return false end
     return nil
 end
 
