@@ -4519,7 +4519,7 @@ local function BuildClearOptions(mode)
 end
 
 local function CreateClearDialog(parent)
-    local frame = CreateFrame("Frame", "CleveRoidsImmunityClearDialog", parent)
+    local frame = CreateFrame("Frame", "SCRM_DLSI_ClearDialog", parent)
     frame:SetWidth(430)
     frame:SetHeight(180)
     frame:SetPoint("CENTER", parent, "CENTER", 0, 20)
@@ -4614,7 +4614,7 @@ local function ShowClearDialog(mode)
 end
 
 local function CreateHistoryDialog(parent)
-    local frame = CreateFrame("Frame", "CleveRoidsImmunityBackupHistory", parent)
+    local frame = CreateFrame("Frame", "SCRM_DLSI_BackupHistory", parent)
     frame:SetWidth(500)
     frame:SetHeight(250)
     frame:SetPoint("CENTER", parent, "CENTER", 0, 15)
@@ -4726,7 +4726,7 @@ local function CreateHistoryDialog(parent)
 end
 
 local function CreateTargetPanel(parent)
-    local frame = CreateFrame("Frame", "CleveRoidsImmunityTargetPanel", parent)
+    local frame = CreateFrame("Frame", "SCRM_DLSI_TargetPanel", parent)
     frame:SetWidth(TARGET_WIDTH)
     frame:SetHeight(MAIN_HEIGHT)
     frame:SetPoint("TOPLEFT", parent, "TOPRIGHT", 4, 0)
