@@ -63,6 +63,11 @@ local function CreateDLSIHostAdapters(host)
         if not api or type(api.GetSpellEffectMechanics) ~= "function" then return nil end
         return api.GetSpellEffectMechanics(spellID)
     end
+    adapters.ClassicAPI.GetUnitAuraBySpellID = function(unit, spellID, filter)
+        local api = host.ClassicAPI
+        if not api or type(api.GetUnitAuraBySpellID) ~= "function" then return nil end
+        return api.GetUnitAuraBySpellID(unit, spellID, filter)
+    end
     adapters.ClassicAPI.GetSpellEffectInfo = function(spellID)
         if not spellID or not C_Spell or
             type(C_Spell.GetSpellEffectInfo) ~= "function" then return nil end
