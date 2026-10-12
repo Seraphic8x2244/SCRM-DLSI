@@ -7,7 +7,7 @@
 - **Development version:** `0.1.12-dev` from `SCRM-DLSI.toc`. Exactly one shipped Lua file, `SCRM-DLSI.lua`. No `locales/enUS.lua` loader.
 - **Previous code checkpoint:** `28a84f2847006ea0af9457027cb671bc3e41a523` (includes conservative three-state query refinement, patch-version bump). The final documentation-only commit follows that checkpoint; verify the actual remote `dev` HEAD before writing further. Handoff started from `01992a324a8862f9c361b761d77f0c71024d5c6e`.
 - **Stable baseline:** none for DLSI. `main` is the untouched README-only baseline at `78806c122549a12a2e0244952e06f80e208abcb7`.
-- **Separate host hook:** `Seraphic8x2244/SuperCleveRoidMacros:immunities-hook` at frozen `bc0a488b051775f128b3d05db03876b15e747061`, based on SCRM `main` `37ca7cef4012cc0d76b7e559ac9517c785dbae79`. No changes to that branch are authorised absent a demonstrated integration defect.
+- **Separate host hook:** `Seraphic8x2244/SuperCleveRoidMacros:immunities-hook` at `d0c5d805cfe95f54b5f593adbc7475aea81967c0` (dropdown fix after frozen `bc0a488b051775f128b3d05db03876b15e747061`), based on SCRM `main` `37ca7cef4012cc0d76b7e559ac9517c785dbae79`. The user-confirmed dropdown selection defect warranted a narrowly scoped fix on that branch.
 - **Advanced learner source:** SCRM `design/temp-cc-immunity` at `3b37d154aac32fd0bc28347e69b2c3858a030daa`, unchanged.
 - **Implementation status:** Chunk C private adapters/startup/HearthDB/events and Chunk D generic provider registration + exclusive three-state bridge are **implemented and source-checked**. It is an integration test *candidate*, not user-tested, stable or released.
 
@@ -52,7 +52,12 @@
 - **Fixed in DLSI `dev`:** private read-only aura lookup adapter added, no original learner algorithm edits; TOC bumped to **0.1.12-dev**. Code commits `fd1b4bedd8d4bee0c2a376e332b0f2f05b9706c4`, `a989f1440877359eff5c251e9acdee2abe8cd34a`.
 - **PASS static audit after fix:** enumerated every original learner `ClassicAPI` invocation (seven methods: ResolveLiveCreatureID, GetSpellSchoolByID, GetSpellMechanicByID, GetSpellEffectMechanics, GetSpellEffectInfo, GetSpellDispelType, GetUnitAuraBySpellID) and verified each is present in private adapter. Inspected remaining private `CleveRoids` facade calls and local module-owned methods; no additional undefined adapter method detected. This is not execution or proof of optional client API availability.
 - **New 0.1.12-dev Lua compiler CI:** not verified in this review; earlier compiler PASS belongs to 0.1.11-dev only. **0.1.12-dev runtime:** not tested; prior error belongs to 0.1.11-dev. Do not claim fixed at runtime until checked.
-- **Next:** verify 0.1.12-dev Lua 5.0.3 compiler result, then deal with frozen host dropdown defect through an explicitly scoped host-hook change; continue paired runtime validation on exact builds. No main/PR changes and no database migration.
+- **Next:** verify 0.1.12-dev Lua 5.0.3 compiler result, then deal with host dropdown fix `d0c5d805` through a paired runtime check; continue paired runtime validation on exact builds. No main/PR changes and no database migration.
+
+## Additional paired runtime results / host fix (2026-10-12)
+- User reports DLSI `0.1.12-dev` aura-related Lua error spam stopped and **some new learning events occurred**. This supports repaired live observation/learning paths but does not validate all inference, exclusion or persistence branches.
+- The SCRM dropdown still stayed on Built-in when clicking DLSI, while manual `SelectImmunityProvider("scrm-dlsi")` worked. Applied a narrow callback binding fix in the host `immunities-hook` branch at `d0c5d805cfe95f54b5f593adbc7475aea81967c0` (per-entry closure capturing provider ID). Original DLSI code and learner were not touched for this fix. **New host fix is not runtime tested**; do not mark dropdown corrected until verified.
+- DLSI `0.1.12-dev` Lua compiler verification remains outstanding, separately from the already passed `0.1.11-dev` job. No main changes or PR.
 
 ## Next step / scope boundary
 1. Verify `dev` HEAD and review the last 0.1.11-dev GitHub Actions Lua compiler job result; if failing, fix demonstrated defect and bump TOC patch. Review the exact combined DLSI+frozen host API signatures and event/state ownership once more, and assemble a numbered **future** runtime validation matrix. Do not ask for user runtime tests until addon implementation and static candidate review are fully finished.
