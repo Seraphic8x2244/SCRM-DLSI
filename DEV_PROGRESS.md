@@ -4,7 +4,7 @@
 
 ## Current / Recovery (2026-10-12)
 - **Repository / branch:** `Seraphic8x2244/SCRM-DLSI`, `dev` only.
-- **Development version:** `0.1.12-dev` from `SCRM-DLSI.toc`. Exactly one shipped Lua file, `SCRM-DLSI.lua`. No `locales/enUS.lua` loader.
+- **Development version:** `0.1.13-dev` from `SCRM-DLSI.toc`. Exactly one shipped Lua file, `SCRM-DLSI.lua`. No `locales/enUS.lua` loader.
 - **Previous code checkpoint:** `28a84f2847006ea0af9457027cb671bc3e41a523` (includes conservative three-state query refinement, patch-version bump). The final documentation-only commit follows that checkpoint; verify the actual remote `dev` HEAD before writing further. Handoff started from `01992a324a8862f9c361b761d77f0c71024d5c6e`.
 - **Stable baseline:** none for DLSI. `main` is the untouched README-only baseline at `78806c122549a12a2e0244952e06f80e208abcb7`.
 - **Separate host hook:** `Seraphic8x2244/SuperCleveRoidMacros:immunities-hook` at `d0c5d805cfe95f54b5f593adbc7475aea81967c0` (dropdown fix after frozen `bc0a488b051775f128b3d05db03876b15e747061`), based on SCRM `main` `37ca7cef4012cc0d76b7e559ac9517c785dbae79`. The user-confirmed dropdown selection defect warranted a narrowly scoped fix on that branch.
@@ -58,6 +58,11 @@
 - User reports DLSI `0.1.12-dev` aura-related Lua error spam stopped and **some new learning events occurred**. This supports repaired live observation/learning paths but does not validate all inference, exclusion or persistence branches.
 - The SCRM dropdown still stayed on Built-in when clicking DLSI, while manual `SelectImmunityProvider("scrm-dlsi")` worked. Applied a narrow callback binding fix in the host `immunities-hook` branch at `d0c5d805cfe95f54b5f593adbc7475aea81967c0` (per-entry closure capturing provider ID). Original DLSI code and learner were not touched for this fix. **New host fix is not runtime tested**; do not mark dropdown corrected until verified.
 - DLSI `0.1.12-dev` Lua compiler verification remains outstanding, separately from the already passed `0.1.11-dev` job. No main changes or PR.
+
+## Dropdown validation and name correction (2026-10-12)
+- **PASS user runtime, SCRM hook `d0c5d805`:** user confirmed the provider dropdown now switches correctly. Earlier hook callback bug is resolved in the tested setup. No DLSI learner changes involved.
+- **Product name correction:** user specified **Deep Learning Super Immunities** (DLSS wordplay). Provider registration's display label was corrected from `SCRM Deep Learning Immunities`; stable provider ID `scrm-dlsi`, account-wide saved selection and bridge semantics are unchanged. DLSI development version incremented to `0.1.13-dev`, code commit `ec89be2a`, TOC commit `951a1afa`. This display-only delta is not yet runtime verified and should not be conflated with the previously tested `0.1.12-dev` learner.
+- **Testing:** Lua 5.0.3 CI for `0.1.13-dev` has not been verified in this note. No `main` changes or PR.
 
 ## Next step / scope boundary
 1. Verify `dev` HEAD and review the last 0.1.11-dev GitHub Actions Lua compiler job result; if failing, fix demonstrated defect and bump TOC patch. Review the exact combined DLSI+frozen host API signatures and event/state ownership once more, and assemble a numbered **future** runtime validation matrix. Do not ask for user runtime tests until addon implementation and static candidate review are fully finished.
