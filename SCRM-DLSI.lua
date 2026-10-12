@@ -1,7 +1,6 @@
--- SCRM-DLSI single-source extraction workspace.
--- Original advanced modules preserved verbatim inside private loader functions.
--- DO NOT ACTIVATE until host helpers, HearthDB preservation and provider wiring
--- have been audited. This source-stage commit is intentionally not a runnable DLSI.
+-- SCRM-DLSI single-source advanced immunity provider.
+-- Original inference modules remain isolated in private loader functions.
+-- Activate only after fail-closed HearthDB setup and ownership preflight.
 local ADDON_NAME = "SCRM-DLSI"
 local ADDON_VERSION = GetAddOnMetadata(ADDON_NAME, "Version")
 
@@ -5223,7 +5222,56 @@ local function PrepareDLSI()
     DLSI.ClassicAPI = adapters.ClassicAPI
     DLSI.Print = adapters.Print
     DLSI.NotifyImmunityDataChanged = adapters.NotifyImmunityDataChanged
-    DLSI.GetImmunityDebugSnapshot = adapters.GetImmunityDebugSnapshot
+    -- The UI must never present host legacy learning as DLSI truth.
+    -- Preserve legacy SavedVariables for inspection only; all recorded rows
+    -- below are read from the original DLSI Knowledge/HearthDB backend.
+    DLSI.GetImmunityDebugSnapshot = function(unit)
+        unit = unit or "target"
+        local result = {
+            exists = UnitExists(unit) and true or false,
+            name = UnitName(unit),
+            creatureEntry = nil,
+            recordedCC = {}, recordedSpell = {},
+            liveCC = {}, liveSpell = {}, explanations = {}, legacy = {},
+        }
+        if not result.exists then return result end
+        if not UnitIsPlayer(unit) then
+            result.creatureEntry = tonumber(UnitCreatureID(unit))
+        end
+        local knowledge = DLSI.ImmunityKnowledge
+        local facts = result.creatureEntry and knowledge and
+            knowledge.GetFacts(result.creatureEntry) or {}
+        for i = 1, table.getn(facts) do
+            local fact = facts[i]
+            if fact.verdict == "immune" then
+                local entry = {
+                    immunityType = fact.dimension,
+                    source = "DLSI HearthDB",
+                    detail = fact.proofSource,
+                    active = true,
+                }
+                if CC_DIMENSIONS[fact.dimension] or fact.dimension == "cc" then
+                    table.insert(result.recordedCC, entry)
+                else
+                    table.insert(result.recordedSpell, entry)
+                end
+            end
+        end
+        local _, guardType, auraID = adapters.HasImmunityGuardAura(unit)
+        if guardType == "reflect" then
+            table.insert(result.explanations, { detail = auraID })
+        elseif guardType then
+            local entry = {
+                immunityType = guardType, source = "temporary aura", detail = auraID,
+            }
+            if CC_DIMENSIONS[guardType] or guardType == "cc" then
+                table.insert(result.liveCC, entry)
+            else
+                table.insert(result.liveSpell, entry)
+            end
+        end
+        return result
+    end
     DLSI.HasImmunityGuardAura = adapters.HasImmunityGuardAura
     DLSI.IsTemporarilyCCImmune = adapters.IsTemporarilyCCImmune
     DLSI.GetTransientImmunityAuraEffects = adapters.GetTransientImmunityAuraEffects
@@ -5277,13 +5325,14 @@ local function PrepareDLSI()
         return false
     end
 
-    local registered = host.RegisterImmunityProvider(
+    local registrationOK, registered = pcall(
+        host.RegisterImmunityProvider,
         PROVIDER_ID, "SCRM Deep Learning Immunities",
         function(unit, spell)
             if not DLSI.IsSelectedProvider() then return nil end
             return QueryDLSIImmunity(DLSI, host, unit, spell)
         end)
-    if not registered then
+    if not registrationOK or not registered then
         closed = true
         storage.Close()
         if host.Print then host.Print("DLSI provider registration failed") end
