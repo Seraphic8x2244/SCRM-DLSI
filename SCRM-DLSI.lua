@@ -5370,7 +5370,7 @@ local function PrepareDLSI()
 
     local registrationOK, registered = pcall(
         host.RegisterImmunityProvider,
-        PROVIDER_ID, "SCRM Deep Learning Immunities",
+        PROVIDER_ID, "Deep Learning Super Immunities",
         function(unit, spell)
             if not DLSI.IsSelectedProvider() then return nil end
             return QueryDLSIImmunity(DLSI, host, unit, spell)
