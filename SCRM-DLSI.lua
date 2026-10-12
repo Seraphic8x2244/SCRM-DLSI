@@ -5019,12 +5019,148 @@ CreateMainFrame()
 end
 -- END preserved source: ImmunityUI.lua
 
+-- Chunk D: the host supplies selection and exclusive automatic-learning
+-- ownership; this private bridge supplies only DLSI's three-state truth.
+-- No legacy SavedVariables data is consulted or written here.
+local PROVIDER_ID = "scrm-dlsi"
+local QUERY_DIMENSIONS = {
+    all=true, cc=true, spell=true, physical=true, holy=true, fire=true,
+    nature=true, frost=true, shadow=true, arcane=true, bleed=true,
+    charm=true, disorient=true, fear=true, root=true, silence=true,
+    sleep=true, snare=true, stun=true, freeze=true, knockout=true,
+    polymorph=true, banish=true, shackle=true, horror=true, daze=true,
+    dispel_magic=true, curse=true, disease=true, poison=true,
+}
+local MAGIC_SCHOOLS = {
+    holy=true, fire=true, nature=true, frost=true, shadow=true, arcane=true,
+}
+local CC_DIMENSIONS = {
+    charm=true, disorient=true, fear=true, root=true, silence=true,
+    sleep=true, snare=true, stun=true, freeze=true, knockout=true,
+    polymorph=true, banish=true, shackle=true, horror=true, daze=true,
+}
+
+local function AddQueryDimension(list, seen, dimension)
+    if QUERY_DIMENSIONS[dimension] and not seen[dimension] then
+        seen[dimension] = true
+        table.insert(list, dimension)
+    end
+end
+
+local function GetQuerySpellID(host, text)
+    if type(text) == "number" then
+        if text > 0 then return text end
+        return nil
+    end
+    if type(text) ~= "string" then return nil end
+    local base = text
+    if type(host.StripRank) == "function" then
+        base = host.StripRank(text) or text
+    else
+        base = string.gsub(text, "%s*%([Rr]ank%s+%d+%)%s*$", "")
+    end
+    base = string.gsub(base, "_", " ")
+    if type(host.GetSpellIdForName) == "function" then
+        return host.GetSpellIdForName(base)
+    end
+    if type(GetSpellIdForName) == "function" then
+        return GetSpellIdForName(base)
+    end
+    return nil
+end
+
+local function BuildQueryDimensions(profile)
+    local dimensions, seen = {}, {}
+    if type(profile) ~= "table" then return dimensions, false end
+    local school = profile.school
+    -- An unknown school means the complete action cannot be proved vulnerable.
+    local complete = QUERY_DIMENSIONS[school] and true or false
+    AddQueryDimension(dimensions, seen, school)
+    if MAGIC_SCHOOLS[school] then
+        AddQueryDimension(dimensions, seen, "spell")
+    end
+    -- Retain the original typed mechanic/dispel classifiers from Observations.
+    AddQueryDimension(dimensions, seen, profile.dispelDimension)
+    local mechanics = profile.mechanicDimensions or {}
+    for i = 1, table.getn(mechanics) do
+        local dimension = mechanics[i]
+        AddQueryDimension(dimensions, seen, dimension)
+        if CC_DIMENSIONS[dimension] then
+            AddQueryDimension(dimensions, seen, "cc")
+        end
+    end
+    AddQueryDimension(dimensions, seen, "all")
+    return dimensions, complete
+end
+
+local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
+    local storage = DLSI.ImmunityStorage
+    local knowledge = DLSI.ImmunityKnowledge
+    if not storage or not storage.IsReady or not storage.IsReady() or
+        not knowledge or not knowledge.IsActive or not knowledge.IsActive() then
+        return nil
+    end
+    if type(UnitExists) ~= "function" or not unitId or
+        not UnitExists(unitId) or UnitIsPlayer(unitId) then return nil end
+    if type(UnitCreatureID) ~= "function" then return nil end
+    local mobID = tonumber(UnitCreatureID(unitId))
+    if not mobID or mobID <= 0 or mobID ~= math.floor(mobID) then
+        return nil
+    end
+
+    local dimensions, complete
+    if type(spellOrSchool) == "string" and
+        QUERY_DIMENSIONS[string.lower(spellOrSchool)] then
+        dimensions = { string.lower(spellOrSchool) }
+        complete = true
+    else
+        local spellID = GetQuerySpellID(host, spellOrSchool)
+        if not spellID or not DLSI.ImmunityObservations then return nil end
+        local profile = DLSI.ImmunityObservations.GetSpellProfile(spellID)
+        if not profile or not profile.name then return nil end
+        dimensions, complete = BuildQueryDimensions(profile)
+    end
+
+    local anyUnknown = not complete
+    for i = 1, table.getn(dimensions) do
+        local dimension = dimensions[i]
+        -- Confirmed live guards count only for their documented type.
+        -- Reflection is a learning exclusion, not proof of immunity.
+        if DLSI.HasImmunityGuardAura then
+            local _, auraType = DLSI.HasImmunityGuardAura(unitId)
+            if auraType == "all" or auraType == dimension or
+                (auraType == "spell" and MAGIC_SCHOOLS[dimension]) then
+                return true
+            end
+        end
+        if CC_DIMENSIONS[dimension] and DLSI.IsTemporarilyCCImmune and
+            DLSI.IsTemporarilyCCImmune(unitId, dimension) then
+            return true
+        end
+
+        local state = knowledge.GetDimensionState(mobID, dimension)
+        if state == "immune" then return true end
+        if state ~= "vulnerable" then anyUnknown = true end
+    end
+    -- Only complete, independently proven vulnerability yields false.
+    -- Missing facts, hypotheses, errors and absent identity remain nil.
+    if not anyUnknown then return false end
+    return nil
+end
+
 -- Chunk C integration: private facade, HearthDB lifecycle and event gating.
--- The provider is deliberately NOT registered here. Without provider selection the
--- observation frame is inert, preventing simultaneous host/DLSI learning.
+-- Registration follows successful storage + complete learner/UI activation.
+-- The observation frame checks the live host selection on every event.
 local DLSI = { DLSIEventsEnabled = false }
 local ready = false
 local closed = false
+
+DLSI.IsSelectedProvider = function()
+    local host = _G.CleveRoids
+    return ready and not closed and DLSI.DLSIEventsEnabled and
+        host and type(host.GetSelectedImmunityProvider) == "function" and
+        host.GetSelectedImmunityProvider() == PROVIDER_ID
+end
 
 local function BindPrivateModuleEnvironment(loader)
     -- Lua 5.0 environments isolate accidental global assignments. WoW API
@@ -5083,23 +5219,58 @@ local function PrepareDLSI()
     -- Opening storage precedes all knowledge listeners and inference activation.
     -- Storage.Initialize fails closed on missing HearthDB or unknown schema.
     BindPrivateModuleEnvironment(LoadOriginalImmunityStorage)
-    LoadOriginalImmunityStorage(DLSI)
+    local loaded, err = pcall(LoadOriginalImmunityStorage, DLSI)
+    if not loaded then
+        closed = true -- partially loaded modules must never be retried/duplicated
+        if host.Print then host.Print("DLSI storage failed: " .. tostring(err)) end
+        return false
+    end
     local storage = DLSI.ImmunityStorage
-    if not storage then return false end
-    local ok = storage.Initialize()
-    if not ok then return false end
+    if not storage then closed = true; return false end
+    local initialized, ok = pcall(storage.Initialize)
+    if not initialized or not ok then
+        if not initialized then
+            closed = true
+            if host.Print then host.Print("DLSI HearthDB failed: " .. tostring(ok)) end
+        end
+        storage.Close()
+        return false
+    end
 
-    -- One existing Observations frame owns the normalized event seam.
-    -- It remains inert until the separate Chunk D provider cutover.
+    -- One existing Observations frame owns the normalized learner event seam.
+    -- Register the provider only after every original module has loaded.
     BindPrivateModuleEnvironment(LoadOriginalImmunityObservations)
     BindPrivateModuleEnvironment(LoadOriginalImmunityTransient)
     BindPrivateModuleEnvironment(LoadOriginalImmunityKnowledge)
     BindPrivateModuleEnvironment(LoadOriginalImmunityUI)
-    LoadOriginalImmunityObservations(DLSI)
-    LoadOriginalImmunityTransient(DLSI)
-    LoadOriginalImmunityKnowledge(DLSI)
-    LoadOriginalImmunityUI(DLSI)
+    local modulesLoaded, moduleError = pcall(function()
+        LoadOriginalImmunityObservations(DLSI)
+        LoadOriginalImmunityTransient(DLSI)
+        LoadOriginalImmunityKnowledge(DLSI)
+        LoadOriginalImmunityUI(DLSI)
+    end)
+    if not modulesLoaded then
+        closed = true
+        storage.Close()
+        if host.Print then host.Print("DLSI module startup failed: " ..
+            tostring(moduleError)) end
+        return false
+    end
+
+    local registered = host.RegisterImmunityProvider(
+        PROVIDER_ID, "SCRM Deep Learning Immunities",
+        function(unit, spell)
+            if not DLSI.IsSelectedProvider() then return nil end
+            return QueryDLSIImmunity(DLSI, host, unit, spell)
+        end)
+    if not registered then
+        closed = true
+        storage.Close()
+        if host.Print then host.Print("DLSI provider registration failed") end
+        return false
+    end
     ready = true
+    DLSI.DLSIEventsEnabled = true
     return true
 end
 
@@ -5117,3 +5288,13 @@ lifecycle:SetScript("OnEvent", function()
     if event == "ADDON_LOADED" and arg1 ~= ADDON_NAME then return end
     PrepareDLSI()
 end)
+
+-- DLSI-owned UI entry point; no host slash command or macro UI is replaced.
+SLASH_SCRMDLSI1 = "/dlsi"
+SlashCmdList["SCRMDLSI"] = function()
+    if ready and DLSI.ToggleImmunityUI then
+        DLSI.ToggleImmunityUI()
+    elseif _G.CleveRoids and _G.CleveRoids.Print then
+        _G.CleveRoids.Print("DLSI is unavailable; check HearthDB and ClassicAPI")
+    end
+end
