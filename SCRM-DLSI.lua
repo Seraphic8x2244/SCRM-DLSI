@@ -5074,12 +5074,28 @@ local function BuildQueryDimensions(profile)
     local school = profile.school
     -- An unknown school means the complete action cannot be proved vulnerable.
     local complete = QUERY_DIMENSIONS[school] and true or false
+    -- A vulnerability to the school alone does not prove that an unclassified
+    -- mechanic, dispel family or target-creature restriction can succeed.
+    -- Do not manufacture a false when the original profile is incomplete.
+    if profile.targetCreatureType and profile.targetCreatureType > 0 then
+        complete = false
+    end
+    if profile.spellMechanic and profile.spellMechanic > 0 and
+        not profile.spellMechanicDimension then complete = false end
+    if profile.dispelType and profile.dispelType > 0 and
+        not profile.dispelDimension then complete = false end
     AddQueryDimension(dimensions, seen, school)
     if MAGIC_SCHOOLS[school] then
         AddQueryDimension(dimensions, seen, "spell")
     end
     -- Retain the original typed mechanic/dispel classifiers from Observations.
     AddQueryDimension(dimensions, seen, profile.dispelDimension)
+    local effects = profile.effects or {}
+    for i = 1, 3 do
+        local effect = effects[i]
+        if effect and effect.mechanic and effect.mechanic > 0 and
+            not effect.mechanicDimension then complete = false end
+    end
     local mechanics = profile.mechanicDimensions or {}
     for i = 1, table.getn(mechanics) do
         local dimension = mechanics[i]
