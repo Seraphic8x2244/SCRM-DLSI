@@ -25,6 +25,13 @@ local function CreateDLSIHostAdapters(host)
     end
     -- Host's ClassicAPI wrappers remain authoritative for spell data.
     adapters.ClassicAPI = {}
+    adapters.ClassicAPI.ResolveLiveCreatureID = function(guid)
+        local api = host.ClassicAPI
+        if api and type(api.ResolveLiveCreatureID) == "function" then
+            return api.ResolveLiveCreatureID(guid)
+        end
+        return nil, nil, "resolver_unavailable"
+    end
     local spellMethods = {"GetSpellSchoolByID", "GetSpellMechanicByID", "GetSpellEffectMechanics", "GetSpellEffectInfo", "GetSpellDispelType"}
     for _, method in ipairs(spellMethods) do
         local name = method
@@ -290,7 +297,7 @@ end
 local function WasClientInitiatedSpell(spellID)
     -- Nampower SPELL_CAST_EVENT fires only for spells initiated by the client.
     -- Proc/trigger spell IDs reach server SPELL_GO/MISS without their own entry.
-    local cast = host.pendingCasts and CleveRoids.pendingCasts[spellID]
+    local cast = host.pendingCasts and host.pendingCasts[spellID]
     if not cast or not cast.timestamp then return false end
     local age = GetTime() - cast.timestamp
     return age >= 0 and age <= 5
@@ -1043,7 +1050,7 @@ local EVENT_NAMES = {
     "PLAYER_ENTERING_WORLD",
 }
 
-local frame = CreateFrame("Frame", "CleveRoidsImmunityObservationFrame")
+local frame = CreateFrame("Frame", "SCRM_DLSI_ObservationFrame")
 Pipeline.frame = frame
 
 if CleveRoids.hasNampower then
@@ -1053,6 +1060,7 @@ if CleveRoids.hasNampower then
 end
 
 frame:SetScript("OnEvent", function()
+    if not CleveRoids.DLSIEventsEnabled then return end
     Pipeline.HandleNampowerEvent(event, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
 end)
 
@@ -3703,7 +3711,7 @@ end
 
 local function EnsureLearningSCTDriver()
     if learningSCTDriver then return end
-    learningSCTDriver = CreateFrame("Frame", "CleveRoidsImmunityLearningAlertDriver", UIParent)
+    learningSCTDriver = CreateFrame("Frame", "SCRM_DLSI_LearningAlertDriver", UIParent)
     learningSCTDriver:SetScript("OnUpdate", function()
         local elapsed = arg1 or 0
         local duration = GetLearningAlertDuration()
@@ -4783,7 +4791,7 @@ local function CreateTargetPanel(parent)
 end
 
 local function CreateMainFrame()
-    local frame = CreateFrame("Frame", "CleveRoidsImmunityManagementFrame", UIParent)
+    local frame = CreateFrame("Frame", "SCRM_DLSI_ManagementFrame", UIParent)
     frame:SetWidth(MAIN_WIDTH)
     frame:SetHeight(MAIN_HEIGHT)
     -- Center the combined main + attached target footprint. At 1024-wide UI scale
@@ -4920,7 +4928,7 @@ local function CreateMainFrame()
     clearDialog = CreateClearDialog(frame)
     historyDialog = CreateHistoryDialog(frame)
 
-    local eventFrame = CreateFrame("Frame", "CleveRoidsImmunityUIEventFrame", frame)
+    local eventFrame = CreateFrame("Frame", "SCRM_DLSI_UIEventFrame", frame)
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     eventFrame:RegisterEvent("UNIT_AURA")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -4976,6 +4984,93 @@ CreateMainFrame()
 end
 -- END preserved source: ImmunityUI.lua
 
--- Chunk C: loaders now receive an explicit private namespace. They remain dormant
--- until UI legacy writes, adapter binding, DB lifecycle, and startup are safe.
--- Deliberately no module invocation before integration adapters are ready.
+-- Chunk C integration: private facade, HearthDB lifecycle and event gating.
+-- The provider is deliberately NOT registered here. Without provider selection the
+-- observation frame is inert, preventing simultaneous host/DLSI learning.
+local DLSI = { DLSIEventsEnabled = false }
+local ready = false
+local closed = false
+
+local function BindPrivateModuleEnvironment(loader)
+    -- Lua 5.0 environments isolate accidental global assignments. WoW API
+    -- lookup still uses the game's global table; private writes stay private.
+    local environment = {}
+    setmetatable(environment, { __index = _G })
+    setfenv(loader, environment)
+end
+
+local function PrepareDLSI()
+    if ready or closed then return ready end
+    local host = _G.CleveRoids
+    if type(host) ~= "table" or type(host.ClassicAPI) ~= "table" then
+        return false
+    end
+    local api = host.ClassicAPI
+    local required = {
+        "GetSpellSchoolByID", "GetSpellMechanicByID",
+        "GetSpellEffectMechanics", "GetSpellEffectInfo",
+        "GetSpellDispelType", "ResolveLiveCreatureID"
+    }
+    for i = 1, table.getn(required) do
+        if type(api[required[i]]) ~= "function" then return false end
+    end
+    if type(_G.C_Spell) ~= "table" or
+        type(C_Spell.GetSpellName) ~= "function" or
+        type(C_Spell.GetSpellTexture) ~= "function" then
+        return false
+    end
+    local adapters = CreateDLSIHostAdapters(host)
+    DLSI.NormalizeGUID = adapters.NormalizeGUID
+    DLSI.ClassicAPI = adapters.ClassicAPI
+    DLSI.Print = adapters.Print
+    DLSI.NotifyImmunityDataChanged = adapters.NotifyImmunityDataChanged
+    DLSI.GetImmunityDebugSnapshot = adapters.GetImmunityDebugSnapshot
+    DLSI.HasImmunityGuardAura = adapters.HasImmunityGuardAura
+    DLSI.IsTemporarilyCCImmune = adapters.IsTemporarilyCCImmune
+    DLSI.GetTransientImmunityAuraEffects = adapters.GetTransientImmunityAuraEffects
+    DLSI.GetSpellImmunityDRType = adapters.GetSpellImmunityDRType
+    DLSI.ClassifyNPCStunDR = adapters.ClassifyNPCStunDR
+    DLSI.hasNampower = host.hasNampower and true or false
+    DLSI.hasTurtle = host.hasTurtle and true or false
+    DLSI.unknownTexture = host.unknownTexture
+    adapters.OnKnowledgeChanged = function()
+        if DLSI.RefreshImmunityUI then DLSI.RefreshImmunityUI() end
+    end
+
+    -- Opening storage precedes all knowledge listeners and inference activation.
+    -- Storage.Initialize fails closed on missing HearthDB or unknown schema.
+    BindPrivateModuleEnvironment(LoadOriginalImmunityStorage)
+    LoadOriginalImmunityStorage(DLSI)
+    local storage = DLSI.ImmunityStorage
+    if not storage then return false end
+    local ok = storage.Initialize()
+    if not ok then return false end
+
+    -- One existing Observations frame owns the normalized event seam.
+    -- It remains inert until the separate Chunk D provider cutover.
+    BindPrivateModuleEnvironment(LoadOriginalImmunityObservations)
+    BindPrivateModuleEnvironment(LoadOriginalImmunityTransient)
+    BindPrivateModuleEnvironment(LoadOriginalImmunityKnowledge)
+    BindPrivateModuleEnvironment(LoadOriginalImmunityUI)
+    LoadOriginalImmunityObservations(DLSI)
+    LoadOriginalImmunityTransient(DLSI)
+    LoadOriginalImmunityKnowledge(DLSI)
+    LoadOriginalImmunityUI(DLSI)
+    ready = true
+    return true
+end
+
+local lifecycle = CreateFrame("Frame", "SCRM_DLSI_LifecycleFrame")
+lifecycle:RegisterEvent("ADDON_LOADED")
+lifecycle:RegisterEvent("PLAYER_ENTERING_WORLD")
+lifecycle:RegisterEvent("PLAYER_LOGOUT")
+lifecycle:SetScript("OnEvent", function()
+    if event == "PLAYER_LOGOUT" then
+        closed = true
+        DLSI.DLSIEventsEnabled = false
+        if DLSI.ImmunityStorage then DLSI.ImmunityStorage.Close() end
+        return
+    end
+    if event == "ADDON_LOADED" and arg1 ~= ADDON_NAME then return end
+    PrepareDLSI()
+end)
