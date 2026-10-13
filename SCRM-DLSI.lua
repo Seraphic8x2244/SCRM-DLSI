@@ -3438,7 +3438,7 @@ local function LoadOriginalImmunityUI(namespace)
     Immunity testing/management UI
     Production immunity inspection/management surface. No inference lives here.
     Learned permanent facts are read from ImmunityKnowledge/HearthDB; the
-    SavedVariables table is retained only for explicit manual/static overrides.
+    SCRM SavedVariables are not used as data sources or overrides.
 ]]
 local _G = _G or getfenv(0)
 local CleveRoids = namespace -- DLSI private namespace; never alias the host
@@ -4027,8 +4027,8 @@ local function StorageKeyForDimension(dimension)
     return nil
 end
 
--- Build the existing UI columns from the same production inputs used by macro
--- queries: confirmed HearthDB facts plus explicit manual/static overrides.
+-- Display only DLSI's own HearthDB conclusions. SCRM's legacy
+-- SavedVariables cannot seed, override or appear as DLSI learning.
 local function BuildProductionDisplayData()
     local data = {}
 
@@ -4055,20 +4055,6 @@ local function BuildProductionDisplayData()
             end
         end
     end
-
-    -- Data-version 7 guarantees these name-keyed entries are user-created
-    -- manual/static overrides, not learned facts.
-    local staticData = CleveRoids_ImmunityData or {}
-    local function addStaticColumns(columns)
-        for _, column in ipairs(columns) do
-            local lines = SortedBucketLines(staticData[column.key])
-            for _, line in ipairs(lines) do
-                addLine(column.key, line .. " [manual]")
-            end
-        end
-    end
-    addStaticColumns(CC_COLUMNS)
-    addStaticColumns(SPELL_COLUMNS)
 
     for _, lines in pairs(data) do
         table.sort(lines)
@@ -4250,10 +4236,9 @@ local function RefreshHorizontalSection(section, data)
 end
 
 local function RefreshLegacyUnknown()
-    local bucket = CleveRoids_ImmunityData and CleveRoids_ImmunityData.unknown
-    local count = TableCount(bucket)
-    legacyTitle:SetText("Manual/static unknown (" .. tostring(count) .. ")")
-    AddLines(legacyList, SortedBucketLines(bucket))
+    -- No SCRM legacy data may be displayed or used by DLSI.
+    legacyTitle:SetText("DLSI HearthDB only")
+    AddLines(legacyList, {})
 end
 
 local function ImmunityLabel(entry)
@@ -4493,12 +4478,9 @@ local function RefreshAll()
     RefreshTargetPanel()
 end
 
--- Host-owned manual/static immunity records and backups are strictly read-only.
--- DLSI does not administer SCRM's legacy SavedVariables.
+-- No reads or writes of SCRM legacy backup history.
+-- The retained original management UI is inert until DLSI-owned tools exist.
 local function EnsureBackupTable()
-    if CleveRoidMacros and type(CleveRoidMacros.immunityBackups) == "table" then
-        return CleveRoidMacros.immunityBackups
-    end
     return {}
 end
 
@@ -4531,7 +4513,7 @@ local function BuildClearOptions(mode)
 
     if mode == "cc" then
         table.insert(options, { key = "*", label = "All manual CC overrides" })
-        if TableCount(CleveRoids_ImmunityData and CleveRoids_ImmunityData.cc) > 0 then
+        if false then
             table.insert(options, { key = "cc", label = "Broad CC" })
         end
         for _, column in ipairs(CC_COLUMNS) do
@@ -4547,7 +4529,7 @@ local function BuildClearOptions(mode)
         for _, column in ipairs(SPELL_COLUMNS) do
             table.insert(options, { key = column.key, label = column.label })
         end
-        if TableCount(CleveRoids_ImmunityData and CleveRoids_ImmunityData.unknown) > 0 then
+        if false then
             table.insert(options, { key = "unknown", label = "Manual/static unknown" })
         end
     else
@@ -4914,7 +4896,7 @@ local function CreateMainFrame()
 
     legacyTitle = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     legacyTitle:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -596)
-    legacyTitle:SetText("Manual/static unknown (0)")
+    legacyTitle:SetText("DLSI HearthDB only")
 
     legacyList = CreateMessageList(frame)
     legacyList:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -615)
@@ -5255,9 +5237,8 @@ local function PrepareDLSI()
     DLSI.ClassicAPI = adapters.ClassicAPI
     DLSI.Print = adapters.Print
     DLSI.NotifyImmunityDataChanged = adapters.NotifyImmunityDataChanged
-    -- The UI must never present host legacy learning as DLSI truth.
-    -- Preserve legacy SavedVariables for inspection only; all recorded rows
-    -- below are read from the original DLSI Knowledge/HearthDB backend.
+    -- Never consult or present host legacy immunity records.
+    -- All recorded rows are DLSI Knowledge/HearthDB conclusions.
     DLSI.GetImmunityDebugSnapshot = function(unit)
         unit = unit or "target"
         local result = {
