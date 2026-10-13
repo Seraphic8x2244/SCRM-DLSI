@@ -4513,9 +4513,6 @@ local function BuildClearOptions(mode)
 
     if mode == "cc" then
         table.insert(options, { key = "*", label = "All manual CC overrides" })
-        if false then
-            table.insert(options, { key = "cc", label = "Broad CC" })
-        end
         for _, column in ipairs(CC_COLUMNS) do
             if not column.broad then
                 table.insert(options, {
@@ -4528,9 +4525,6 @@ local function BuildClearOptions(mode)
         table.insert(options, { key = "*", label = "All manual spell/school overrides" })
         for _, column in ipairs(SPELL_COLUMNS) do
             table.insert(options, { key = column.key, label = column.label })
-        end
-        if false then
-            table.insert(options, { key = "unknown", label = "Manual/static unknown" })
         end
     else
         table.insert(options, { key = "*", label = "ALL manual/static overrides" })
