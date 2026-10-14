@@ -5376,6 +5376,75 @@ lifecycle:SetScript("OnEvent", function()
     PrepareDLSI()
 end)
 
+-- Dev-only, opt-in event trace. This is deliberately outside the inference
+-- pipeline: messages and UI errors are not proof of lasting immunity.
+local ripTrace = CreateFrame("Frame", "SCRM_DLSI_RipTraceFrame")
+local ripTraceOn = false
+local ripTraceCount = 0
+local ripTraceEvents = {
+    "SPELL_CAST_EVENT", "SPELL_MISS_SELF", "SPELL_MISS_OTHER",
+    "SPELL_DAMAGE_EVENT_SELF", "SPELL_DAMAGE_EVENT_OTHER",
+    "DEBUFF_ADDED_SELF", "DEBUFF_ADDED_OTHER",
+    "UI_ERROR_MESSAGE", "COMBAT_TEXT_UPDATE",
+    "CHAT_MSG_SPELL_FAILED_LOCALPLAYER", "CHAT_MSG_SPELL_SELF_DAMAGE",
+    "CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE",
+}
+local function RipTraceText(value)
+    if value == nil then return "-" end
+    local result = tostring(value)
+    if string.len(result) > 65 then
+        return string.sub(result, 1, 65)
+    end
+    return result
+end
+local function RipTracePrint(message)
+    if DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffDLSI trace|r " .. message)
+    end
+end
+ripTrace:SetScript("OnEvent", function()
+    if not ripTraceOn then return end
+    -- Capture raw event arguments without assuming where spell or GUID resides.
+    -- Selected target and combo point count are context, not learned evidence.
+    local args = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 }
+    local parts = {}
+    for i = 1, 8 do
+        if args[i] ~= nil then
+            table.insert(parts, tostring(i) .. "=" .. RipTraceText(args[i]))
+        end
+    end
+    local target = UnitName("target") or "none"
+    local points = type(GetComboPoints) == "function" and
+        GetComboPoints() or "?"
+    RipTracePrint(string.format("%.2f", GetTime()) .. " " ..
+        tostring(event) .. " target=" .. RipTraceText(target) ..
+        " cp=" .. RipTraceText(points) .. " " .. table.concat(parts, " "))
+    ripTraceCount = ripTraceCount + 1
+    if ripTraceCount >= 80 then
+        ripTraceOn = false
+        for i = 1, table.getn(ripTraceEvents) do
+            ripTrace:UnregisterEvent(ripTraceEvents[i])
+        end
+        RipTracePrint("80-event limit reached; trace stopped")
+    end
+end)
+SLASH_SCRMDLSITRACE1 = "/dlsitrace"
+SlashCmdList["SCRMDLSITRACE"] = function()
+    ripTraceOn = not ripTraceOn
+    if ripTraceOn then
+        ripTraceCount = 0
+        for i = 1, table.getn(ripTraceEvents) do
+            ripTrace:RegisterEvent(ripTraceEvents[i])
+        end
+        RipTracePrint("ON (up to 80 raw events); use Rip on target, then /dlsitrace to stop")
+    else
+        for i = 1, table.getn(ripTraceEvents) do
+            ripTrace:UnregisterEvent(ripTraceEvents[i])
+        end
+        RipTracePrint("OFF")
+    end
+end
+
 -- DLSI-owned UI entry point; no host slash command or macro UI is replaced.
 SLASH_SCRMDLSI1 = "/dlsi"
 SlashCmdList["SCRMDLSI"] = function()
