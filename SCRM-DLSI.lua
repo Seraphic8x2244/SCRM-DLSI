@@ -5449,6 +5449,7 @@ local function RipTraceWindow()
     scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -36, 17)
     local edit = CreateFrame("EditBox", nil, scroll)
     edit:SetMultiLine(true)
+    edit:SetMaxLetters(0)
     edit:SetAutoFocus(false)
     edit:SetFontObject(ChatFontNormal)
     edit:SetWidth(590)
@@ -5462,13 +5463,15 @@ local function RipTraceWindow()
 end
 local function RipTraceRefresh()
     local window = RipTraceWindow()
+    ripTraceEdit:SetHeight(math.max(340, table.getn(ripTraceLines) * 18))
     ripTraceEdit:SetText(table.concat(ripTraceLines, "\n"))
-    ripTraceEdit:HighlightText(0, 0)
     window:Show()
+    ripTraceEdit:SetFocus()
 end
 local function RipTraceAppend(message)
     table.insert(ripTraceLines, message)
     if ripTraceWindow and ripTraceWindow:IsShown() then
+        ripTraceEdit:SetHeight(math.max(340, table.getn(ripTraceLines) * 18))
         ripTraceEdit:SetText(table.concat(ripTraceLines, "\n"))
     end
 end
