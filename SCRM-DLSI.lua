@@ -5397,15 +5397,70 @@ local function RipTraceText(value)
     end
     return result
 end
-local function RipTracePrint(message)
-    if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffDLSI trace|r " .. message)
+local ripTraceLines = {}
+local ripTraceWindow
+local ripTraceEdit
+local function RipTraceWindow()
+    if ripTraceWindow then return ripTraceWindow end
+    local frame = CreateFrame("Frame", "SCRM_DLSI_TraceWindow", UIParent)
+    frame:SetWidth(660)
+    frame:SetHeight(420)
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    frame:SetFrameStrata("DIALOG")
+    frame:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    frame:SetBackdropColor(0, 0, 0, 0.95)
+    frame:EnableMouse(true)
+    frame:SetMovable(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function() frame:StartMoving() end)
+    frame:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -14)
+    title:SetText("DLSI Rip Event Trace - select text with Ctrl+A / Ctrl+C")
+    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 2, 2)
+    local scroll = CreateFrame("ScrollFrame", "SCRM_DLSI_TraceScroll", frame, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -42)
+    scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -36, 17)
+    local edit = CreateFrame("EditBox", nil, scroll)
+    edit:SetMultiLine(true)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject(ChatFontNormal)
+    edit:SetWidth(590)
+    edit:SetHeight(340)
+    edit:SetTextInsets(2, 2, 2, 2)
+    edit:SetScript("OnEscapePressed", function() frame:Hide() end)
+    scroll:SetScrollChild(edit)
+    frame:Hide()
+    ripTraceWindow = frame
+    ripTraceEdit = edit
+    return frame
+end
+local function RipTraceRefresh()
+    local window = RipTraceWindow()
+    ripTraceEdit:SetText(table.concat(ripTraceLines, "\\n"))
+    ripTraceEdit:HighlightText(0, 0)
+    window:Show()
+end
+local function RipTraceAppend(message)
+    table.insert(ripTraceLines, message)
+    if ripTraceWindow and ripTraceWindow:IsShown() then
+        ripTraceEdit:SetText(table.concat(ripTraceLines, "\\n"))
+    end
+end
+local function RipTraceStop()
+    ripTraceOn = false
+    for i = 1, table.getn(ripTraceEvents) do
+        ripTrace:UnregisterEvent(ripTraceEvents[i])
     end
 end
 ripTrace:SetScript("OnEvent", function()
     if not ripTraceOn then return end
-    -- Capture raw event arguments without assuming where spell or GUID resides.
-    -- Selected target and combo point count are context, not learned evidence.
     local args = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 }
     local parts = {}
     for i = 1, 8 do
@@ -5414,40 +5469,39 @@ ripTrace:SetScript("OnEvent", function()
         end
     end
     local target = UnitName("target") or "none"
-    local points = type(GetComboPoints) == "function" and
-        GetComboPoints() or "?"
-    RipTracePrint(string.format("%.2f", GetTime()) .. " " ..
+    local points = type(GetComboPoints) == "function" and GetComboPoints() or "?"
+    RipTraceAppend(string.format("%.2f", GetTime()) .. " " ..
         tostring(event) .. " target=" .. RipTraceText(target) ..
         " cp=" .. RipTraceText(points) .. " " .. table.concat(parts, " "))
     ripTraceCount = ripTraceCount + 1
     if ripTraceCount >= 80 then
-        ripTraceOn = false
-        for i = 1, table.getn(ripTraceEvents) do
-            ripTrace:UnregisterEvent(ripTraceEvents[i])
-        end
-        RipTracePrint("80-event limit reached; trace stopped")
+        RipTraceStop()
+        RipTraceAppend("80-event limit reached; trace stopped")
+        RipTraceRefresh()
     end
 end)
-SLASH_SCRMDLSITRACE1 = "/dlsitrace"
-SlashCmdList["SCRMDLSITRACE"] = function()
-    ripTraceOn = not ripTraceOn
+local function ToggleRipTrace()
     if ripTraceOn then
+        RipTraceStop()
+        RipTraceAppend("Trace stopped.")
+    else
         ripTraceCount = 0
+        ripTraceLines = { "DLSI Rip trace - raw event diagnostics (not learner evidence)" }
         for i = 1, table.getn(ripTraceEvents) do
             ripTrace:RegisterEvent(ripTraceEvents[i])
         end
-        RipTracePrint("ON (up to 80 raw events); use Rip on target, then /dlsitrace to stop")
-    else
-        for i = 1, table.getn(ripTraceEvents) do
-            ripTrace:UnregisterEvent(ripTraceEvents[i])
-        end
-        RipTracePrint("OFF")
+        ripTraceOn = true
     end
+    RipTraceRefresh()
 end
 
 -- DLSI-owned UI entry point; no host slash command or macro UI is replaced.
 SLASH_SCRMDLSI1 = "/dlsi"
-SlashCmdList["SCRMDLSI"] = function()
+SlashCmdList["SCRMDLSI"] = function(message)
+    if string.lower(string.gsub(message or "", "^%s*(.-)%s*$", "%1")) == "trace" then
+        ToggleRipTrace()
+        return
+    end
     if ready and DLSI.ToggleImmunityUI then
         DLSI.ToggleImmunityUI()
     elseif _G.CleveRoids and _G.CleveRoids.Print then
