@@ -5089,6 +5089,17 @@ local function BuildQueryDimensions(profile)
     return dimensions, complete
 end
 
+-- A derived query, not a learned fact: all six magical schools must
+-- independently be confirmed immune. No stored aggregate can become stale.
+local function IsBroadSpellImmune(knowledge, mobID)
+    for school in pairs(MAGIC_SCHOOLS) do
+        if knowledge.GetDimensionState(mobID, school) ~= "immune" then
+            return false
+        end
+    end
+    return true
+end
+
 local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
     local storage = DLSI.ImmunityStorage
     local knowledge = DLSI.ImmunityKnowledge
@@ -5128,6 +5139,15 @@ local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
         local profile = DLSI.ImmunityObservations.GetSpellProfile(spellID)
         if not profile or not profile.name then return nil end
         dimensions, complete = BuildQueryDimensions(profile)
+    end
+
+    -- Recompute from current HearthDB school facts on every query.
+    -- Only positive proof is inferred; an incomplete aggregate stays unknown.
+    if not playerTarget and IsBroadSpellImmune(knowledge, mobID) then
+        if named == "spell" then return true end
+        for i = 1, table.getn(dimensions) do
+            if MAGIC_SCHOOLS[dimensions[i]] then return true end
+        end
     end
 
     local anyUnknown = not complete
