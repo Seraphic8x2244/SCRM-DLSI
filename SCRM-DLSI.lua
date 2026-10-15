@@ -5433,7 +5433,6 @@ local function RipTraceWindow()
     edit:SetFontObject(ChatFontNormal)
     edit:SetWidth(590)
     edit:SetHeight(340)
-    edit:SetTextInsets(2, 2, 2, 2)
     edit:SetScript("OnEscapePressed", function() frame:Hide() end)
     scroll:SetScrollChild(edit)
     frame:Hide()
@@ -5443,14 +5442,14 @@ local function RipTraceWindow()
 end
 local function RipTraceRefresh()
     local window = RipTraceWindow()
-    ripTraceEdit:SetText(table.concat(ripTraceLines, "\\n"))
+    ripTraceEdit:SetText(table.concat(ripTraceLines, "\n"))
     ripTraceEdit:HighlightText(0, 0)
     window:Show()
 end
 local function RipTraceAppend(message)
     table.insert(ripTraceLines, message)
     if ripTraceWindow and ripTraceWindow:IsShown() then
-        ripTraceEdit:SetText(table.concat(ripTraceLines, "\\n"))
+        ripTraceEdit:SetText(table.concat(ripTraceLines, "\n"))
     end
 end
 local function RipTraceStop()
