@@ -88,6 +88,10 @@
 - **Validation debt:** exact `0.1.16-dev` Lua 5.0.3 compiler result, /dlsi trace usability, and broad Spell semantics under an artificial all-six/revoked-school dataset remain **not verified**. No runtime test result was manufactured. No `main` changes or PR.
 - **Next:** inspect latest GitHub Actions check against 0.1.16-dev, then verify trace UX and a Rip reproduction; test derived broad Spell with confirmed school data and a revocation.
 
+## Pre-runtime trace correction (2026-10-15)
+- In reviewing the proposed runtime test, detected that the temporary multiline EditBox did not explicitly permit long log content or resize its scroll child to the accumulated rows. Corrected with unlimited EditBox text, dynamic scroll-child height, and focus for Ctrl+A/Ctrl+C. Code commit `5dba5c17`; TOC bumped to `0.1.17-dev` at `552dd124`.
+- Earlier newline error was already corrected at `dca15ad`. New trace command is `/dlsi trace`; no chat trace output. No original inference changes. Static source reviewed; **no verified Lua 5.0.3 Actions success or in-game trial** for 0.1.17-dev. Avoid claiming test-ready until compile gate is confirmed.
+
 ## Next step / scope boundary
 1. Verify `dev` HEAD and review the last 0.1.11-dev GitHub Actions Lua compiler job result; if failing, fix demonstrated defect and bump TOC patch. Review the exact combined DLSI+frozen host API signatures and event/state ownership once more, and assemble a numbered **future** runtime validation matrix. Do not ask for user runtime tests until addon implementation and static candidate review are fully finished.
 2. When code completeness is confirmed, use exact dev version/commit for first paired DLSI + SCRM hook runtime checks: Built-in unchanged; registration and account-wide selection/reload; true vs false vs nil (including bare/named `[immune]`/`[noimmune]`); selected-provider missing/error remains unknown; no host automatic writes while DLSI selected; switching back; HearthDB existing rows survive, missing/mismatched DB fail closed; real observation/TempCC/DR/reflection/death/alerts and persistence. Clearly label any untested paths.
