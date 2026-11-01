@@ -5217,9 +5217,10 @@ local function RepairLegacyAuraFallbackFacts(storage, DLSI)
         polymorph = { [5] = true },               -- MOD_CONFUSE, not POLYMORPH
     }
     local ok, facts = storage.Query(
-        "SELECT mob_id, dimension, proof_spell_id, proof_event FROM facts " ..
+        "SELECT dimension, proof_spell_id, COUNT(*) AS fact_count FROM facts " ..
         "WHERE verdict = 'vulnerable' AND proof_source = 'authoritative_aura' " ..
-        "AND dimension IN ('root','charm','polymorph')")
+        "AND dimension IN ('root','charm','polymorph') " ..
+        "GROUP BY dimension, proof_spell_id")
     if not ok then return false, "could not inspect aura proof: " .. tostring(facts) end
     local statements = {
         "BEGIN;",
@@ -5234,10 +5235,8 @@ local function RepairLegacyAuraFallbackFacts(storage, DLSI)
     for i = 1, table.getn(facts) do
         local row = facts[i]
         local spellID = tonumber(row.proof_spell_id)
-        local mobID = tonumber(row.mob_id)
         local dimension = row.dimension
         if spellID and spellID > 0 and spellID == math.floor(spellID) and
-            mobID and mobID > 0 and mobID == math.floor(mobID) and
             oldWrongAura[dimension] then
             local profile = DLSI.ImmunityObservations.GetSpellProfile(spellID)
             if not profile or not profile.name or not profile.effects then
@@ -5261,11 +5260,10 @@ local function RepairLegacyAuraFallbackFacts(storage, DLSI)
                     if success[j] == dimension then stillProven = true end
                 end
                 if not stillProven then
-                    local mobSQL = string.format("%.0f", mobID)
                     local spellSQL = string.format("%.0f", spellID)
                     local dimSQL = storage.SQLText(dimension)
-                    local match = "mob_id = " .. mobSQL .. " AND dimension = " ..
-                        dimSQL .. " AND verdict = 'vulnerable' AND " ..
+                    local match = "dimension = " .. dimSQL ..
+                        " AND verdict = 'vulnerable' AND " ..
                         "proof_source = 'authoritative_aura' AND proof_spell_id = " ..
                         spellSQL
                     table.insert(statements,
@@ -5276,7 +5274,7 @@ local function RepairLegacyAuraFallbackFacts(storage, DLSI)
                         "proof_source,proof_spell_id,proof_event FROM facts WHERE " ..
                         match .. ";")
                     table.insert(statements, "DELETE FROM facts WHERE " .. match .. ";")
-                    removed = removed + 1
+                    removed = removed + (tonumber(row.fact_count) or 0)
                 end
             end
         end
