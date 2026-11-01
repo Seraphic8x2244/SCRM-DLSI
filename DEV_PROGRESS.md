@@ -1,5 +1,12 @@
 # Development Progress — SCRM-DLSI
 
+## Pending approved aura-enum repair (2026-11-01)
+- Current remote `dev` base: `dd66097df55eb8fa61d574cbb3131bf537d3da52`; installed `0.1.17-dev`, no known stable DLSI release. Last code `5dba5c17`, version `552dd124`, handoff `dd66097`. Last verified Lua 5.0.3 CI applies to `0.1.11-dev`, not current. Last user runtime: `0.1.12-dev` and frozen SCRM host dropdown branch `d0c5d805`; later changes untested.
+- User authorizes correction of all wrong Vanilla AuraType fallback entries in DLSI and SCRM `immunities-hook`, plus a one-time, selective HearthDB repair. This supersedes the old no-migration rule **only** for the audited targeted repair; no whole-db wipe, external data merge, or `main` edits.
+- Proven errors: AuraType 11 is TAUNT (not ROOT; 26 ROOT), 1 BIND_SIGHT (not charm), 31 INCREASE_SPEED (not charm), 5 MOD_CONFUSE (should disorient rather than polymorph). 6 MOD_CHARM was omitted. The source error was introduced in host commit `76525664` (2026-04-01) and copied into DLSI `e75e1987` (2026-10-10).
+- Uploaded HearthDB v1: 90 of 119 root-vulnerable facts cite Growl 6795 and `authoritative_aura`; 27 cite Frost Nova 122, 2 Entangling Roots 339. Classify any taunt spell by its real aura effect rather than restricting to Growl. Clean only affected false facts whose last proof is invalid under corrected classification. Preserve other facts and hypotheses. Versioned migration must run once transactionally, fail closed on errors, and keep the separate Frost Nova IMMUNE boss issue deferred.
+- Exact next step: implement on `dev` with TOC bump, patch SCRM `immunities-hook`, run source and SQLite regression checks, verify compiler/CI, update this handoff with commit SHAs and precise validation debt. Fresh chat recommended after checkpoint as this investigation is long.
+
 **Sole authoritative live project handoff.** Follow `dev_rulebook.md` (read-only) and verify actual branch HEADs before coding. Earlier experimental checkpoints are represented by Git history; this document reflects the current state.
 
 ## Current / Recovery (2026-10-12)
