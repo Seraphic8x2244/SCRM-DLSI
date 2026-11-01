@@ -491,16 +491,17 @@ local MECHANIC_TO_DIMENSION = {
 -- Aura-name fallback is only used when no recognized explicit spell/effect
 -- mechanic exists. This prevents a generic MOD_STUN aura from misclassifying a
 -- spell whose explicit mechanic says Sleep/Knockout/Banish.
+-- Vanilla AuraType numbers, not mechanic IDs: 1=BIND_SIGHT, 11=MOD_TAUNT
+-- and 31=MOD_INCREASE_SPEED; none of those establishes CC vulnerability.
 local AURA_NAME_TO_DIMENSION = {
-    [1] = "charm",
-    [2] = "charm",
-    [5] = "polymorph",
-    [7] = "fear",
-    [11] = "root",
-    [12] = "stun",
-    [27] = "silence",
-    [31] = "charm",
-    [33] = "snare",
+    [2] = "charm",       -- MOD_POSSESS
+    [5] = "disorient",   -- MOD_CONFUSE
+    [6] = "charm",       -- MOD_CHARM
+    [7] = "fear",        -- MOD_FEAR
+    [12] = "stun",       -- MOD_STUN
+    [26] = "root",       -- MOD_ROOT
+    [27] = "silence",    -- MOD_SILENCE
+    [33] = "snare",      -- MOD_DECREASE_SPEED
 }
 
 -- Dispel-family immunity is independent from spell school. "dispel_magic" is
@@ -1116,7 +1117,7 @@ local Storage = CleveRoids.ImmunityStorage or {}
 CleveRoids.ImmunityStorage = Storage
 
 Storage.DB_FILENAME = "SuperCleveRoidMacros_Immunity.db"
-Storage.SCHEMA_VERSION = 1
+Storage.SCHEMA_VERSION = 2
 Storage.handle = nil
 Storage.ready = false
 Storage.schemaVersion = nil
@@ -1165,7 +1166,7 @@ CREATE TABLE IF NOT EXISTS hypothesis_candidates (
     FOREIGN KEY (hypothesis_id) REFERENCES hypotheses(hypothesis_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_hypotheses_mob_id ON hypotheses(mob_id);
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 COMMIT;
 ]]
 
@@ -1205,7 +1206,7 @@ CREATE TABLE hypothesis_candidates (
     FOREIGN KEY (hypothesis_id) REFERENCES hypotheses(hypothesis_id) ON DELETE CASCADE
 );
 CREATE INDEX idx_hypotheses_mob_id ON hypotheses(mob_id);
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 COMMIT;
 ]]
 
@@ -1492,9 +1493,10 @@ function Storage.Initialize()
             Storage.Close()
             return setError("schema", "schema creation failed: " .. tostring(createError))
         end
-    elseif version ~= Storage.SCHEMA_VERSION then
-        -- DLSI startup must never reset existing HearthDB records implicitly.
-        -- A mismatched schema is unavailable until an explicit recovery decision.
+    elseif version ~= 1 and version ~= Storage.SCHEMA_VERSION then
+        -- Version 1 is supported only through the one-time, provenance-guarded
+        -- aura classification correction before registration/learning begins.
+        -- Any other mismatch fails closed; no implicit database reset.
         Storage.Close()
         return setError("schema", "unsupported existing schema version " .. tostring(version) ..
             " (expected " .. tostring(Storage.SCHEMA_VERSION) .. "); data preserved")
@@ -1510,7 +1512,7 @@ function Storage.Initialize()
 
     clearError()
     Storage.ready = true
-    Storage.schemaVersion = Storage.SCHEMA_VERSION
+    Storage.schemaVersion = (version == 0) and Storage.SCHEMA_VERSION or version
     return true
 end
 
@@ -5196,6 +5198,105 @@ local function QueryDLSIImmunity(DLSI, host, unitId, spellOrSchool)
     return nil
 end
 
+-- One-time version 1 -> 2 HearthDB evidence repair, requested for the
+-- erroneous Vanilla AuraType fallback inherited from the SCRM host.
+-- Back up each removed row inside the SAME transaction; no full-table wipe.
+-- A spell qualifies only when its actual aura data contains an obsolete wrong
+-- fallback AND the corrected authoritative-success classifier excludes that
+-- dimension. This catches all taunts (AuraType 11), not just Growl (6795).
+-- Unlike the generic learner, this is a strictly version-gated migration.
+local function RepairLegacyAuraFallbackFacts(storage, DLSI)
+    if storage.schemaVersion == storage.SCHEMA_VERSION then return true, 0 end
+    if storage.schemaVersion ~= 1 or storage.SCHEMA_VERSION ~= 2 then
+        return false, "unsupported aura repair schema version"
+    end
+
+    local oldWrongAura = {
+        root = { [11] = true },                   -- MOD_TAUNT, not ROOT
+        charm = { [1] = true, [31] = true },     -- BIND_SIGHT, INCREASE_SPEED
+        polymorph = { [5] = true },               -- MOD_CONFUSE, not POLYMORPH
+    }
+    local ok, facts = storage.Query(
+        "SELECT mob_id, dimension, proof_spell_id, proof_event FROM facts " ..
+        "WHERE verdict = 'vulnerable' AND proof_source = 'authoritative_aura' " ..
+        "AND dimension IN ('root','charm','polymorph')")
+    if not ok then return false, "could not inspect aura proof: " .. tostring(facts) end
+    local statements = {
+        "BEGIN;",
+        "CREATE TABLE IF NOT EXISTS dlsi_aura_repair_backup (" ..
+        "mob_id INTEGER NOT NULL, dimension TEXT NOT NULL, verdict TEXT NOT NULL," ..
+        "dynamic_suspected INTEGER NOT NULL, proof_source TEXT," ..
+        "proof_spell_id INTEGER, proof_event TEXT," ..
+        "PRIMARY KEY(mob_id, dimension));"
+    }
+    local removed = 0
+    local i, j
+    for i = 1, table.getn(facts) do
+        local row = facts[i]
+        local spellID = tonumber(row.proof_spell_id)
+        local mobID = tonumber(row.mob_id)
+        local dimension = row.dimension
+        if spellID and spellID > 0 and spellID == math.floor(spellID) and
+            mobID and mobID > 0 and mobID == math.floor(mobID) and
+            oldWrongAura[dimension] then
+            local profile = DLSI.ImmunityObservations.GetSpellProfile(spellID)
+            if not profile or not profile.name or not profile.effects then
+                return false, "cannot classify existing proof spell " .. tostring(spellID)
+            end
+
+            local carriesWrongAura = false
+            for j = 1, 3 do
+                local effect = profile.effects[j]
+                if effect and oldWrongAura[dimension][effect.auraName] then
+                    carriesWrongAura = true
+                end
+            end
+            if carriesWrongAura then
+                local success = DLSI.ImmunityKnowledge.GetSuccessDimensions({
+                    kind = "aura", outcome = "aura_present",
+                    auraKind = "debuff", spell = profile
+                })
+                local stillProven = false
+                for j = 1, table.getn(success) do
+                    if success[j] == dimension then stillProven = true end
+                end
+                if not stillProven then
+                    local mobSQL = string.format("%.0f", mobID)
+                    local spellSQL = string.format("%.0f", spellID)
+                    local dimSQL = storage.SQLText(dimension)
+                    local match = "mob_id = " .. mobSQL .. " AND dimension = " ..
+                        dimSQL .. " AND verdict = 'vulnerable' AND " ..
+                        "proof_source = 'authoritative_aura' AND proof_spell_id = " ..
+                        spellSQL
+                    table.insert(statements,
+                        "INSERT OR IGNORE INTO dlsi_aura_repair_backup " ..
+                        "(mob_id,dimension,verdict,dynamic_suspected," ..
+                        "proof_source,proof_spell_id,proof_event) " ..
+                        "SELECT mob_id,dimension,verdict,dynamic_suspected," ..
+                        "proof_source,proof_spell_id,proof_event FROM facts WHERE " ..
+                        match .. ";")
+                    table.insert(statements, "DELETE FROM facts WHERE " .. match .. ";")
+                    removed = removed + 1
+                end
+            end
+        end
+    end
+    table.insert(statements, "PRAGMA user_version = 2;")
+    table.insert(statements, "COMMIT;")
+    local applied, err = storage.Execute(table.concat(statements, "\n"))
+    if not applied then
+        storage.Execute("ROLLBACK;")
+        return false, "aura repair transaction failed: " .. tostring(err)
+    end
+    local checked, versionRows = storage.Query("PRAGMA user_version")
+    if not checked or not versionRows or not versionRows[1] or
+        tonumber(versionRows[1].user_version) ~= 2 then
+        return false, "aura repair version verification failed"
+    end
+    storage.schemaVersion = 2
+    return true, removed
+end
+
 -- Chunk C integration: private facade, HearthDB lifecycle and event gating.
 -- Registration follows successful storage + complete learner/UI activation.
 -- The observation frame checks the live host selection on every event.
@@ -5361,6 +5462,22 @@ local function PrepareDLSI()
         if host.Print then host.Print("DLSI module startup failed: " ..
             tostring(moduleError)) end
         return false
+    end
+
+    -- Repair v1 aura-derived facts once before exposing the provider. On any
+    -- failure leave records untouched and prevent learning from stale evidence.
+    local repairOK, repairResult, repairCount = pcall(
+        RepairLegacyAuraFallbackFacts, storage, DLSI)
+    if not repairOK or not repairResult then
+        closed = true
+        storage.Close()
+        if host.Print then host.Print("DLSI aura repair failed: " ..
+            tostring(repairOK and repairCount or repairResult)) end
+        return false
+    end
+    if repairCount and repairCount > 0 and host.Print then
+        host.Print("DLSI repaired " .. tostring(repairCount) ..
+            " obsolete aura-vulnerability facts (backup preserved in HearthDB)")
     end
 
     local registrationOK, registered = pcall(
