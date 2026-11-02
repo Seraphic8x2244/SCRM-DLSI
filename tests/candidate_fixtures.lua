@@ -181,7 +181,7 @@ local skipped = make(9205, {
 skipped.spell.effects[1].targetApplicability = "not_applicable"
 local sk = build(skipped)
 eq(dimensions(sk), "frost", "inapplicable effect omitted")
-eq(sk.complete, true, "known inapplicable not an unknown alternative")
+eq(sk.complete, false, "no relevant effect is not an exhaustive explanation")
 eq(findCandidate(sk, "root"), nil, "inapplicable root cannot leak")
 eq(sk.persistenceEligible, false, "no relevant effects cannot prove school")
 eq(reasonPresent(sk, "no_potential_target_effect"), true,
