@@ -10,6 +10,8 @@ on:
       - "tests/profile_fixtures.lua"
       - "tests/candidate_fixtures.lua"
       - "tests/hypothesis_fixtures.lua"
+      - "tests/migration_fixtures.lua"
+      - "tests/hearthdb_v3_sqlite.py"
       - ".github/workflows/lua503-syntax.yml"
   workflow_dispatch:
 
@@ -51,3 +53,6 @@ jobs:
           ./lua503 tests/candidate_fixtures.lua
           ./luac503 -p tests/hypothesis_fixtures.lua
           ./lua503 tests/hypothesis_fixtures.lua
+          ./luac503 -p tests/migration_fixtures.lua
+          ./lua503 tests/migration_fixtures.lua
+          python3 tests/hearthdb_v3_sqlite.py
