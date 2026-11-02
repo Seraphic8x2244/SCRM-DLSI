@@ -123,8 +123,10 @@ expect(nil, ask("spell"), "five magic schools must not imply broad spell immunit
 -- and migration preceding provider registration. These are source checks,
 -- not a live assertion that the host DLL or addon event dispatcher works.
 local function occursOnce(text)
-    local _, count = string.gsub(source, text, "")
-    return count == 1
+    -- Literal source checks: Lua patterns treat parentheses as captures.
+    local _, firstEnd = string.find(source, text, 1, true)
+    if not firstEnd then return false end
+    return string.find(source, text, firstEnd + 1, true) == nil
 end
 expect(true, occursOnce("Pipeline.RegisterListener(onObservation)"),
     "one transient listener")
