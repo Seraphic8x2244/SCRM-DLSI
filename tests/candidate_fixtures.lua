@@ -120,6 +120,14 @@ eq(f.complete, true, "synthetic fully known target")
 eq(f.persistenceEligible, true, "fully modelled whole spell eligible")
 eq(table.concat(durable(frost), ","), "dispel_magic,frost,root", "flat adapter for eligible set")
 
+-- Even a complete profile must not cross the IMMUNE/IMMUNE2 source boundary.
+frost.immuneVariant = "immune2"
+local inconsistent = build(frost)
+eq(reasonPresent(inconsistent, "raw_variant_path_mismatch"), true,
+    "raw IMMUNE2 with whole-spell interpretation is inconsistent")
+eq(inconsistent.persistenceEligible, false, "variant mismatch cannot learn")
+frost.immuneVariant = "immune"
+
 -- Psychic Scream: different sources of Fear dedupe to one typed dimension.
 local scream = make(9202, {
     schoolID = 5, school = "Shadow", spellMechanic = 5,
@@ -175,7 +183,9 @@ local sk = build(skipped)
 eq(dimensions(sk), "frost", "inapplicable effect omitted")
 eq(sk.complete, true, "known inapplicable not an unknown alternative")
 eq(findCandidate(sk, "root"), nil, "inapplicable root cannot leak")
-eq(sk.persistenceEligible, true, "entire remaining set known")
+eq(sk.persistenceEligible, false, "no relevant effects cannot prove school")
+eq(reasonPresent(sk, "no_potential_target_effect"), true,
+    "non-target spell cannot be exhaustive")
 
 -- Unknown nonzero mechanic cannot become an aura fallback.
 local unknownMechanic = make(9206, {

@@ -2590,6 +2590,7 @@ local function buildCandidateModel(observation)
         end
     end
 
+    local potentiallyApplicableEffects = 0
     local i
     for i = 1, 3 do
         local effect = profile.effects and profile.effects[i] or nil
@@ -2600,6 +2601,7 @@ local function buildCandidateModel(observation)
             -- Include unknown-target effects as possible, but never declare
             -- the set exhaustive. Test-only known inapplicable effects are omitted.
             if effect.targetApplicability ~= "not_applicable" then
+                potentiallyApplicableEffects = potentiallyApplicableEffects + 1
                 if effect.targetApplicability ~= "applicable" then
                     unknown("unknown_effect_target:" .. i)
                 end
@@ -2618,6 +2620,12 @@ local function buildCandidateModel(observation)
         end
     end
 
+    -- A target cannot reject an entirely inactive or known-inapplicable
+    -- spell effect set. Do not turn its school into a singleton "proof".
+    if potentiallyApplicableEffects == 0 then
+        unknown("no_potential_target_effect")
+    end
+
     local dispelType = tonumber(profile.dispelType)
     if dispelType and dispelType > 0 then
         if profile.dispelDimension then
@@ -2632,7 +2640,14 @@ local function buildCandidateModel(observation)
         -- IMMUNE2: spell metadata is diagnostic only; no exhaustive causal
         -- interpretation is supplied by the existing adapter.
         unknown("effect_mask_zero_not_exhaustive")
-    elseif model.failurePath ~= "whole_spell" then
+        if model.immuneVariant ~= "immune2" then
+            unknown("raw_variant_path_mismatch")
+        end
+    elseif model.failurePath == "whole_spell" then
+        if model.immuneVariant ~= "immune" then
+            unknown("raw_variant_path_mismatch")
+        end
+    else
         unknown("unverified_failure_path")
     end
 
