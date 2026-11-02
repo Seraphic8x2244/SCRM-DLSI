@@ -35,7 +35,7 @@ CREATE TABLE dlsi_aura_repair_backup (
 """)
     db.execute(f"PRAGMA user_version={version}")
     db.executemany("INSERT INTO mobs VALUES (?,?)",
-                   [(i, f"Mob {i}") for i in range(1, 124)])
+                   [(i, f"Mob {i}") for i in range(1, 127)])
     immune = [
         (1, "frost", "immune", 0, "ambiguous_whole_spell", 122, "SPELL_MISS_OTHER:immune"),
         (2, "frost", "immune", 0, "ambiguous_whole_spell", 122, "SPELL_MISS_OTHER:immune"),
@@ -48,8 +48,7 @@ CREATE TABLE dlsi_aura_repair_backup (
     db.executemany("INSERT INTO facts VALUES (?,?,?,?,?,?,?)", immune)
     db.executemany("INSERT INTO facts VALUES (?,?,?,?,?,?,?)", [
         (i, "root", "vulnerable", 0, "authoritative_aura",
-         6795 if i <= 90 else 122, "aura") for i in range(8, 127)
-         if i <= 123
+         6795 if i <= 97 else 122, "aura") for i in range(8, 127)
     ])
     db.execute("INSERT INTO dlsi_aura_repair_backup VALUES (1,'charm','vulnerable',0,'authoritative_aura',1,'old')")
     db.executemany("INSERT INTO hypotheses VALUES (?,?,?,?,?)", [
