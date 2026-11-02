@@ -7,6 +7,7 @@ on:
     paths:
       - "SCRM-DLSI.lua"
       - "SCRM-DLSI.toc"
+      - "tests/profile_fixtures.lua"
       - ".github/workflows/lua503-syntax.yml"
   workflow_dispatch:
 
@@ -32,3 +33,15 @@ jobs:
             "$LUA_SRC/src/luac/print.c" -lm -o ./luac503
           ./luac503 -v
           ./luac503 -p SCRM-DLSI.lua
+
+      - name: Run synthetic DBC effect profile regressions in Lua 5.0.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          LUA_SRC="$PWD/lua-5.0.3"
+          cc -O2 -fcommon -I"$LUA_SRC/include" -I"$LUA_SRC/src" \
+            "$LUA_SRC"/src/{lapi,lcode,ldebug,ldo,ldump,lfunc,lgc,llex,lmem,lobject,lopcodes,lparser,lstate,lstring,ltable,ltm,lundump,lvm,lzio}.c \
+            "$LUA_SRC"/src/lib/{lauxlib,lbaselib,ldblib,liolib,lmathlib,ltablib,lstrlib,loadlib}.c \
+            "$LUA_SRC/src/lua/lua.c" -lm -ldl -o ./lua503
+          ./luac503 -p tests/profile_fixtures.lua
+          ./lua503 tests/profile_fixtures.lua
