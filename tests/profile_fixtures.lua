@@ -140,6 +140,18 @@ eq(unused.effects[1].classification, "inactive", "inactive wins over aura")
 eq(dims(unused), "", "inactive aura cannot be a candidate")
 eq(unused.hasAura, false, "inactive aura ignored")
 
+-- Effect mechanics on the second slot must remain independently visible
+-- (as in Rake's effect-level bleed; these are synthetic DBC values).
+local secondSlot = fixture(9109, {
+    effects = { raw(2, 0), raw(6, 0), raw(0, 0) },
+    mechanics = { 0, 15, 0 },
+})
+eq(secondSlot.effects[2].effectIndex, 2, "second effect slot identity")
+eq(secondSlot.effects[2].mechanicID, 15, "effect-level bleed mechanic")
+eq(secondSlot.effects[2].mechanicDimension, "bleed", "effect-level bleed classified")
+eq(secondSlot.effects[2].mechanicSource, "effect_mechanic", "bleed provenance")
+eq(dims(secondSlot), "bleed", "effect-level mechanic aggregate")
+
 eq(profiles.GetSpellProfile(9103), root, "profile cache identity")
 profiles.ClearSpellCache()
 local afterClear = profiles.GetSpellProfile(9103)
