@@ -2155,7 +2155,7 @@ local CleveRoids = namespace -- DLSI private namespace; never alias the host
 -- This module consumes normalized observations and persists:
 --   * authoritative per-dimension vulnerability facts;
 --   * unresolved ambiguous immunity hypotheses with linked candidates;
---   * confirmed permanent immunity when exactly one valid permanent cause remains;
+--   * confirmed permanent immunity only on authoritative dimension attribution;
 --   * revocation of a confirmed permanent fact on authoritative success; and
 --   * an independent dynamic/conditional-immunity suspicion flag after revocation.
 --
@@ -2467,13 +2467,17 @@ local function successDimensions(observation)
     local seen = {}
     local profile = observation and observation.spell or nil
 
-    if not observation or not profile then return result end
+    if not observation then return result end
 
+    -- Target-correlated landed damage carries its own school even when the
+    -- optional static spell profile is unavailable.
     if observation.kind == "damage" and observation.outcome == "damage_landed" then
-        local school = observation.runtimeSchool or profile.school
-        addDimension(result, seen, school)
+        addDimension(result, seen,
+            observation.runtimeSchool or (profile and profile.school))
         return result
     end
+
+    if not profile then return result end
 
     if observation.kind ~= "aura"
         or observation.outcome ~= "aura_present"
@@ -3006,6 +3010,24 @@ local function appendImmuneFact(statements, mobSQL, dimension, hypothesis)
     return true
 end
 
+-- All current raw IMMUNE/IMMUNE2 events are ambiguous, not causal proofs.
+-- The v2 schema stores neither typed attribution nor completeness. A survivor
+-- is only suspected, whether single at creation or narrowed by later success.
+-- A future verified, effect-attributed event may pass this common gate, but
+-- today's normalizer does not emit AUTHORITATIVE_IMMUNE at all.
+local function canConfirmFromEvidence(proof, dimension)
+    if type(proof) ~= "table" or not CANDIDATE_DIMENSIONS[dimension] then
+        return false
+    end
+    if not Pipeline.EVIDENCE.AUTHORITATIVE_IMMUNE then return false end
+    return proof.authoritative == true
+        and proof.evidence == Pipeline.EVIDENCE.AUTHORITATIVE_IMMUNE
+        and proof.attribution == "verified_effect"
+        and proof.failurePath == "attributed_dimension"
+        and proof.attributedDimension == dimension
+        and proof.immuneVariant == nil
+end
+
 local function planAfterAuthoritativeSuccess(hypotheses, facts, successSet, revokedSet)
     local survivors = {}
     local deleteIDs = {}
@@ -3053,7 +3075,9 @@ local function planAfterAuthoritativeSuccess(hypotheses, facts, successSet, revo
         local survivor = survivors[hypothesis.hypothesisID]
         if survivor and table.getn(survivor.remaining) == 1 then
             local dimension = survivor.remaining[1]
-            if not confirmationByDimension[dimension] then
+            -- Stored v2 legacy proof fields alone cannot establish attribution.
+            if canConfirmFromEvidence(hypothesis, dimension)
+                and not confirmationByDimension[dimension] then
                 confirmationByDimension[dimension] = hypothesis
                 table.insert(confirmations, {
                     dimension = dimension,
@@ -3387,7 +3411,10 @@ local function createHypothesis(observation)
         return
     end
 
-    local candidates = hypothesisCandidates(observation)
+    local model = buildCandidateModel(observation)
+    -- Keep typed provenance in this observation only. The unchanged v2
+    -- persistence layer receives complete whole-spell flat candidates.
+    local candidates = model.persistenceEligible and model.dimensions or {}
     if table.getn(candidates) == 0 then
         diagnostics.ambiguousUnsupported = diagnostics.ambiguousUnsupported + 1
         incrementLast("hypothesis_skipped", observation, "unverified_or_unclassified_failure_path")
@@ -3454,7 +3481,10 @@ local function createHypothesis(observation)
 
     local existing = Knowledge.GetHypotheses(mobID)
 
-    if table.getn(remaining) == 1 then
+    -- Singletons from ambiguous misses are staged, not immune facts. The
+    -- shared gate applies identically to the delayed confirmation path.
+    if table.getn(remaining) == 1
+        and canConfirmFromEvidence(observation, remaining[1]) then
         local ok, err = confirmSingleCandidate(
             observation,
             mobID,

@@ -9,6 +9,7 @@ on:
       - "SCRM-DLSI.toc"
       - "tests/profile_fixtures.lua"
       - "tests/candidate_fixtures.lua"
+      - "tests/hypothesis_fixtures.lua"
       - ".github/workflows/lua503-syntax.yml"
   workflow_dispatch:
 
@@ -48,3 +49,5 @@ jobs:
           ./lua503 tests/profile_fixtures.lua
           ./luac503 -p tests/candidate_fixtures.lua
           ./lua503 tests/candidate_fixtures.lua
+          ./luac503 -p tests/hypothesis_fixtures.lua
+          ./lua503 tests/hypothesis_fixtures.lua
