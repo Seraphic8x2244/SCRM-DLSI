@@ -5305,6 +5305,14 @@ local function BuildQueryDimensions(profile)
     -- A vulnerability to the school alone does not prove that an unclassified
     -- mechanic, dispel family or target-creature restriction can succeed.
     -- Do not manufacture a false when the original profile is incomplete.
+    -- The spell profile knows whether effect classification and implicit
+    -- targeting were resolved. Querying known school/mechanic facts cannot
+    -- prove the entire spell vulnerable while either remains unmodelled.
+    -- A positive, independently established immune fact can still return true.
+    if profile.effectClassificationComplete ~= true or
+        profile.targetApplicabilityComplete ~= true then
+        complete = false
+    end
     if profile.targetCreatureType and profile.targetCreatureType > 0 then
         complete = false
     end
