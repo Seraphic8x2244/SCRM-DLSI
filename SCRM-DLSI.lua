@@ -2511,56 +2511,149 @@ local function successDimensions(observation)
     return result
 end
 
-local function hypothesisCandidates(observation)
-    local result = {}
-    local seen = {}
+-- Chat 2: typed *possible* causes of an ambiguous miss. A candidate describes
+-- static DBC possibilities, never evidence that the target resisted that cause.
+-- Unknown effect targeting, unsupported effect types and effect-mask semantics
+-- remain explicit alternatives rather than disappearing during deduplication.
+local function buildCandidateModel(observation)
+    local model = {
+        failurePath = observation and observation.failurePath or nil,
+        immuneVariant = observation and observation.immuneVariant or nil,
+        candidates = {}, -- sorted typed dimensions with all provenance entries
+        dimensions = {}, -- legacy flat vocabulary; never proof by itself
+        uncertainty = {},
+        unmodelledAlternative = false,
+        complete = false,
+        persistenceEligible = false,
+    }
+    local byDimension = {}
+    local reasonSeen = {}
+
+    local function unknown(reason)
+        model.unmodelledAlternative = true
+        if not reasonSeen[reason] then
+            reasonSeen[reason] = true
+            table.insert(model.uncertainty, reason)
+        end
+    end
+
+    local function offer(dimension, origin, evidenceClass, effect, rawID)
+        if not dimension or not CANDIDATE_DIMENSIONS[dimension] then
+            unknown("unsupported_dimension:" .. tostring(origin))
+            return
+        end
+        local candidate = byDimension[dimension]
+        if not candidate then
+            candidate = { dimension = dimension, provenance = {} }
+            byDimension[dimension] = candidate
+            table.insert(model.candidates, candidate)
+            table.insert(model.dimensions, dimension)
+        end
+        table.insert(candidate.provenance, {
+            origin = origin,
+            evidenceClass = evidenceClass,
+            effectIndex = effect and effect.effectIndex or nil,
+            effectID = effect and effect.effectID or nil,
+            mechanicID = effect and effect.mechanicID or
+                (origin == "spell_mechanic" and rawID or nil),
+            auraType = effect and effect.auraType or nil,
+            mechanicSource = effect and effect.mechanicSource or nil,
+            targetApplicability = effect and effect.targetApplicability or nil,
+            rawID = rawID,
+        })
+    end
+
     local profile = observation and observation.spell or nil
-
-    if not observation or not profile then return result end
-
-    if observation.failurePath == "whole_spell" then
-        -- A static target-creature restriction is an alternate non-permanent
-        -- vMaNGOS IMMUNE path. Because it is not a durable immunity dimension,
-        -- do not create a hypothesis that Slice 5 could later over-confirm.
-        if profile.targetCreatureType and profile.targetCreatureType > 0 then
-            return result
-        end
-
-        -- An unrecognized spell-level mechanic or Dispel family is still a real
-        -- whole-spell alternative even though Slice 4 has no durable dimension
-        -- for it. Abstain instead of silently dropping that cause.
-        if profile.spellMechanic and profile.spellMechanic > 0
-            and not profile.spellMechanicDimension then
-            return result
-        end
-        if profile.dispelType and profile.dispelType > 0
-            and not profile.dispelDimension then
-            return result
-        end
-        if not profile.school or not CANDIDATE_DIMENSIONS[profile.school] then
-            return result
-        end
-
-        -- vMaNGOS generic IMMUNE: only whole-spell causes belong here. Per-effect
-        -- mechanics are intentionally excluded because those failures are silent.
-        addDimension(result, seen, profile.school)
-        addDimension(result, seen, profile.spellMechanicDimension)
-        addDimension(result, seen, profile.dispelDimension)
-        return result
+    if not profile then
+        unknown("missing_spell_profile")
+        return model
     end
 
-    if observation.failurePath == "effect_mask_zero" then
-        -- vMaNGOS IMMUNE2 can represent per-effect mechanic, aura-state,
-        -- effect-type, or other effect-mask elimination. Slice 4 does not model
-        -- every one of those as a durable dimension, so storing only the known
-        -- subset would make a later single-candidate confirmation unsafe.
-        return result
+    if profile.targetCreatureType and tonumber(profile.targetCreatureType)
+        and tonumber(profile.targetCreatureType) > 0 then
+        unknown("whole_spell_creature_type_restriction")
     end
 
-    -- Portable/Octo raw IMMUNE semantics remain deliberately unverified. The
-    -- adapter must normalize a proven failure path before durable hypotheses are
-    -- allowed; the common reducer never branches on a core name.
-    return result
+    if profile.school and CANDIDATE_DIMENSIONS[profile.school] then
+        offer(profile.school, "school", "dbc_school", nil, profile.schoolID)
+    else
+        unknown("unknown_spell_school")
+    end
+
+    local spellMechanic = tonumber(profile.spellMechanic)
+    if spellMechanic and spellMechanic > 0 then
+        if profile.spellMechanicDimension then
+            offer(profile.spellMechanicDimension, "spell_mechanic",
+                "dbc_explicit_mechanic", nil, spellMechanic)
+        else
+            unknown("unmodelled_spell_mechanic")
+        end
+    end
+
+    local i
+    for i = 1, 3 do
+        local effect = profile.effects and profile.effects[i] or nil
+        if not effect or effect.active == nil then
+            unknown("unknown_effect_slot:" .. i)
+        elseif effect.active then
+            -- No implicit target columns exist in the current C_Spell adapter.
+            -- Include unknown-target effects as possible, but never declare
+            -- the set exhaustive. Test-only known inapplicable effects are omitted.
+            if effect.targetApplicability ~= "not_applicable" then
+                if effect.targetApplicability ~= "applicable" then
+                    unknown("unknown_effect_target:" .. i)
+                end
+                if effect.mechanicDimension then
+                    offer(effect.mechanicDimension, "effect",
+                        effect.mechanicSource or "unknown", effect, effect.effectID)
+                elseif effect.classification == "no_dimension" then
+                    -- E.g. a damage effect with no CC mechanic may still have
+                    -- an unsupported effect-specific rejection path.
+                    unknown("unmodelled_effect_type:" .. i)
+                else
+                    unknown("unclassified_effect:" .. i .. ":" ..
+                        tostring(effect.classification or "unknown"))
+                end
+            end
+        end
+    end
+
+    local dispelType = tonumber(profile.dispelType)
+    if dispelType and dispelType > 0 then
+        if profile.dispelDimension then
+            offer(profile.dispelDimension, "dispel_family",
+                "dbc_dispel_family", nil, dispelType)
+        else
+            unknown("unmodelled_dispel_family")
+        end
+    end
+
+    if model.failurePath == "effect_mask_zero" then
+        -- IMMUNE2: spell metadata is diagnostic only; no exhaustive causal
+        -- interpretation is supplied by the existing adapter.
+        unknown("effect_mask_zero_not_exhaustive")
+    elseif model.failurePath ~= "whole_spell" then
+        unknown("unverified_failure_path")
+    end
+
+    table.sort(model.candidates, function(a, b)
+        return a.dimension < b.dimension
+    end)
+    table.sort(model.dimensions)
+    model.complete = not model.unmodelledAlternative and
+        table.getn(model.dimensions) > 0
+    -- Temporary Chat-2 compatibility boundary: the unchanged v2 learner
+    -- cannot persist completeness/provenance. Never feed it a partial set,
+    -- which its existing singleton-confirmation paths could over-promote.
+    model.persistenceEligible = model.complete and
+        model.failurePath == "whole_spell"
+    return model
+end
+
+local function hypothesisCandidates(observation)
+    local model = buildCandidateModel(observation)
+    if not model.persistenceEligible then return {} end
+    return model.dimensions
 end
 
 local function hasApplicableTransientExplanation(observation, candidates)
@@ -3473,6 +3566,11 @@ function Knowledge.GetDiagnostics()
         knownVulnerableFastPaths = diagnostics.knownVulnerableFastPaths,
         last = diagnostics.last,
     }
+end
+
+-- Lossless, read-only diagnostics. The v2 DB cannot store this provenance.
+function Knowledge.GetCandidateModelForObservation(observation)
+    return buildCandidateModel(observation)
 end
 
 function Knowledge.GetCandidatesForObservation(observation)
