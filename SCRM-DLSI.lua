@@ -1173,7 +1173,7 @@ local Storage = CleveRoids.ImmunityStorage or {}
 CleveRoids.ImmunityStorage = Storage
 
 Storage.DB_FILENAME = "SuperCleveRoidMacros_Immunity.db"
-Storage.SCHEMA_VERSION = 2
+Storage.SCHEMA_VERSION = 3
 Storage.handle = nil
 Storage.ready = false
 Storage.schemaVersion = nil
@@ -1222,7 +1222,25 @@ CREATE TABLE IF NOT EXISTS hypothesis_candidates (
     FOREIGN KEY (hypothesis_id) REFERENCES hypotheses(hypothesis_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_hypotheses_mob_id ON hypotheses(mob_id);
-PRAGMA user_version = 2;
+CREATE TABLE IF NOT EXISTS dlsi_v3_fact_backup (
+    mob_id INTEGER NOT NULL, dimension TEXT NOT NULL,
+    verdict TEXT NOT NULL, dynamic_suspected INTEGER NOT NULL,
+    proof_source TEXT, proof_spell_id INTEGER, proof_event TEXT,
+    retirement_reason TEXT NOT NULL,
+    PRIMARY KEY (mob_id, dimension)
+);
+CREATE TABLE IF NOT EXISTS dlsi_v3_hypothesis_backup (
+    hypothesis_id INTEGER PRIMARY KEY,
+    mob_id INTEGER NOT NULL, proof_source TEXT,
+    proof_spell_id INTEGER, proof_event TEXT,
+    retirement_reason TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS dlsi_v3_hypothesis_candidate_backup (
+    hypothesis_id INTEGER NOT NULL, dimension TEXT NOT NULL,
+    PRIMARY KEY (hypothesis_id, dimension),
+    FOREIGN KEY (hypothesis_id) REFERENCES dlsi_v3_hypothesis_backup(hypothesis_id)
+);
+PRAGMA user_version = 3;
 COMMIT;
 ]]
 
@@ -1262,7 +1280,25 @@ CREATE TABLE hypothesis_candidates (
     FOREIGN KEY (hypothesis_id) REFERENCES hypotheses(hypothesis_id) ON DELETE CASCADE
 );
 CREATE INDEX idx_hypotheses_mob_id ON hypotheses(mob_id);
-PRAGMA user_version = 2;
+CREATE TABLE IF NOT EXISTS dlsi_v3_fact_backup (
+    mob_id INTEGER NOT NULL, dimension TEXT NOT NULL,
+    verdict TEXT NOT NULL, dynamic_suspected INTEGER NOT NULL,
+    proof_source TEXT, proof_spell_id INTEGER, proof_event TEXT,
+    retirement_reason TEXT NOT NULL,
+    PRIMARY KEY (mob_id, dimension)
+);
+CREATE TABLE IF NOT EXISTS dlsi_v3_hypothesis_backup (
+    hypothesis_id INTEGER PRIMARY KEY,
+    mob_id INTEGER NOT NULL, proof_source TEXT,
+    proof_spell_id INTEGER, proof_event TEXT,
+    retirement_reason TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS dlsi_v3_hypothesis_candidate_backup (
+    hypothesis_id INTEGER NOT NULL, dimension TEXT NOT NULL,
+    PRIMARY KEY (hypothesis_id, dimension),
+    FOREIGN KEY (hypothesis_id) REFERENCES dlsi_v3_hypothesis_backup(hypothesis_id)
+);
+PRAGMA user_version = 3;
 COMMIT;
 ]]
 
@@ -1271,6 +1307,11 @@ local SCHEMA_PROBES = {
     "SELECT mob_id, dimension, verdict, dynamic_suspected, proof_source, proof_spell_id, proof_event FROM facts LIMIT 0",
     "SELECT hypothesis_id, mob_id, proof_source, proof_spell_id, proof_event FROM hypotheses LIMIT 0",
     "SELECT hypothesis_id, dimension FROM hypothesis_candidates LIMIT 0",
+}
+local V3_ARCHIVE_PROBES = {
+    "SELECT mob_id, dimension, verdict, dynamic_suspected, proof_source, proof_spell_id, proof_event, retirement_reason FROM dlsi_v3_fact_backup LIMIT 0",
+    "SELECT hypothesis_id, mob_id, proof_source, proof_spell_id, proof_event, retirement_reason FROM dlsi_v3_hypothesis_backup LIMIT 0",
+    "SELECT hypothesis_id, dimension FROM dlsi_v3_hypothesis_candidate_backup LIMIT 0",
 }
 
 local function setError(code, message)
@@ -1294,7 +1335,7 @@ local function executeInternal(sql)
     end
 
     local ok, result = pcall(_G.HDB_Execute, Storage.handle, sql)
-    if not ok then
+    if not ok or result == false then
         return false, tostring(result)
     end
     return true, result
@@ -1354,6 +1395,12 @@ local function validateSchema()
         local ok, err = queryInternal(SCHEMA_PROBES[i])
         if not ok then
             return false, err
+        end
+    end
+    if Storage.schemaVersion == 3 then
+        for i = 1, table.getn(V3_ARCHIVE_PROBES) do
+            local ok, err = queryInternal(V3_ARCHIVE_PROBES[i])
+            if not ok then return false, err end
         end
     end
     return true
@@ -1549,10 +1596,9 @@ function Storage.Initialize()
             Storage.Close()
             return setError("schema", "schema creation failed: " .. tostring(createError))
         end
-    elseif version ~= 1 and version ~= Storage.SCHEMA_VERSION then
-        -- Version 1 is supported only through the one-time, provenance-guarded
-        -- aura classification correction before registration/learning begins.
-        -- Any other mismatch fails closed; no implicit database reset.
+    elseif version ~= 1 and version ~= 2 and version ~= Storage.SCHEMA_VERSION then
+        -- v1 is supported by the aura repair; v2 by the auditable v3 migration.
+        -- Unknown versions always fail closed; no implicit database reset.
         Storage.Close()
         return setError("schema", "unsupported existing schema version " .. tostring(version) ..
             " (expected " .. tostring(Storage.SCHEMA_VERSION) .. "); data preserved")
@@ -5405,8 +5451,10 @@ end
 -- dimension. This catches all taunts (AuraType 11), not just Growl (6795).
 -- Unlike the generic learner, this is a strictly version-gated migration.
 local function RepairLegacyAuraFallbackFacts(storage, DLSI)
-    if storage.schemaVersion == storage.SCHEMA_VERSION then return true, 0 end
-    if storage.schemaVersion ~= 1 or storage.SCHEMA_VERSION ~= 2 then
+    if storage.schemaVersion == 2 or storage.schemaVersion == 3 then
+        return true, 0
+    end
+    if storage.schemaVersion ~= 1 or storage.SCHEMA_VERSION ~= 3 then
         return false, "unsupported aura repair schema version"
     end
 
@@ -5492,6 +5540,142 @@ local function RepairLegacyAuraFallbackFacts(storage, DLSI)
     end
     storage.schemaVersion = 2
     return true, removed
+end
+
+-- v2 did not retain typed/proven causal proof for generic IMMUNE misses.
+-- Retirement is based on evidence class, never on creature/spell identity.
+-- v2 hypotheses have no reconstructable full typed candidate context, including
+-- ones staged after the proof gate: archive and retire rather than trust a subset.
+-- All three archives and the version flip are committed in one transaction.
+-- A cold copy of HearthDB remains the only full-database rollback mechanism.
+local function MigrateHearthDBV3(storage)
+    if storage.schemaVersion == 3 then return true, { facts = 0, hypotheses = 0, candidates = 0 } end
+    if storage.schemaVersion ~= 2 or storage.SCHEMA_VERSION ~= 3 then
+        return false, "unsupported v3 migration source version"
+    end
+
+    local ok, version = storage.Query("PRAGMA user_version")
+    if not ok or not version or not version[1] or
+        tonumber(version[1].user_version) ~= 2 then
+        return false, "v3 migration source version is inconsistent"
+    end
+
+    local intact, rows = storage.Query("PRAGMA integrity_check")
+    if not intact or not rows or not rows[1] or rows[1].integrity_check ~= "ok" then
+        return false, "v3 migration source integrity check failed"
+    end
+    local fkOK, fkRows = storage.Query("PRAGMA foreign_key_check")
+    if not fkOK or not fkRows or table.getn(fkRows) > 0 then
+        return false, "v3 migration source foreign keys invalid"
+    end
+
+    -- A leftover archive on a v2 file is not a clean migration starting point.
+    local inspected, oldArchives = storage.Query(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN " ..
+        "('dlsi_v3_fact_backup','dlsi_v3_hypothesis_backup'," ..
+        "'dlsi_v3_hypothesis_candidate_backup') LIMIT 1")
+    if not inspected or not oldArchives or table.getn(oldArchives) ~= 0 then
+        return false, "v3 archive names already present or could not be inspected"
+    end
+
+    local counted, counts = storage.Query(
+        "SELECT " ..
+        "(SELECT COUNT(*) FROM facts WHERE verdict = 'immune' AND " ..
+        "substr(proof_source,1,10) = 'ambiguous_') AS legacy_facts, " ..
+        "(SELECT COUNT(*) FROM hypotheses) AS legacy_hypotheses, " ..
+        "(SELECT COUNT(*) FROM hypothesis_candidates) AS legacy_candidates")
+    if not counted or not counts or not counts[1] then
+        return false, "cannot count v2 evidence"
+    end
+    local expected = {
+        facts = tonumber(counts[1].legacy_facts),
+        hypotheses = tonumber(counts[1].legacy_hypotheses),
+        candidates = tonumber(counts[1].legacy_candidates),
+    }
+    if not expected.facts or not expected.hypotheses or not expected.candidates then
+        return false, "invalid v2 evidence counts"
+    end
+
+    local sql = [[
+BEGIN IMMEDIATE;
+CREATE TABLE dlsi_v3_fact_backup (
+    mob_id INTEGER NOT NULL, dimension TEXT NOT NULL,
+    verdict TEXT NOT NULL, dynamic_suspected INTEGER NOT NULL,
+    proof_source TEXT, proof_spell_id INTEGER, proof_event TEXT,
+    retirement_reason TEXT NOT NULL,
+    PRIMARY KEY (mob_id, dimension)
+);
+CREATE TABLE dlsi_v3_hypothesis_backup (
+    hypothesis_id INTEGER PRIMARY KEY,
+    mob_id INTEGER NOT NULL, proof_source TEXT,
+    proof_spell_id INTEGER, proof_event TEXT,
+    retirement_reason TEXT NOT NULL
+);
+CREATE TABLE dlsi_v3_hypothesis_candidate_backup (
+    hypothesis_id INTEGER NOT NULL, dimension TEXT NOT NULL,
+    PRIMARY KEY (hypothesis_id, dimension),
+    FOREIGN KEY (hypothesis_id) REFERENCES dlsi_v3_hypothesis_backup(hypothesis_id)
+);
+INSERT INTO dlsi_v3_fact_backup
+(mob_id,dimension,verdict,dynamic_suspected,proof_source,proof_spell_id,proof_event,retirement_reason)
+SELECT mob_id,dimension,verdict,dynamic_suspected,proof_source,proof_spell_id,proof_event,
+       'unattributed_legacy_immune'
+FROM facts WHERE verdict = 'immune' AND substr(proof_source,1,10) = 'ambiguous_';
+DELETE FROM facts WHERE verdict = 'immune' AND substr(proof_source,1,10) = 'ambiguous_';
+INSERT INTO dlsi_v3_hypothesis_backup
+(hypothesis_id,mob_id,proof_source,proof_spell_id,proof_event,retirement_reason)
+SELECT hypothesis_id,mob_id,proof_source,proof_spell_id,proof_event,
+       'legacy_v2_missing_typed_context' FROM hypotheses;
+INSERT INTO dlsi_v3_hypothesis_candidate_backup (hypothesis_id,dimension)
+SELECT hypothesis_id,dimension FROM hypothesis_candidates;
+DELETE FROM hypothesis_candidates;
+DELETE FROM hypotheses;
+]]
+    local applied, err = storage.Execute(sql)
+    if not applied then
+        storage.Execute("ROLLBACK;")
+        return false, "v3 migration staging failed: " .. tostring(err)
+    end
+
+    -- Verify copies and live-table retirement while the transaction can still
+    -- be rolled back. Never commit a partial archive or a mismatched row count.
+    local verified, staged = storage.Query(
+        "SELECT " ..
+        "(SELECT COUNT(*) FROM dlsi_v3_fact_backup) AS archived_facts, " ..
+        "(SELECT COUNT(*) FROM dlsi_v3_hypothesis_backup) AS archived_hypotheses, " ..
+        "(SELECT COUNT(*) FROM dlsi_v3_hypothesis_candidate_backup) AS archived_candidates, " ..
+        "(SELECT COUNT(*) FROM facts WHERE verdict = 'immune' AND " ..
+        "substr(proof_source,1,10) = 'ambiguous_') AS remaining_facts, " ..
+        "(SELECT COUNT(*) FROM hypotheses) AS remaining_hypotheses, " ..
+        "(SELECT COUNT(*) FROM hypothesis_candidates) AS remaining_candidates")
+    if not verified or not staged or not staged[1] or
+        tonumber(staged[1].archived_facts) ~= expected.facts or
+        tonumber(staged[1].archived_hypotheses) ~= expected.hypotheses or
+        tonumber(staged[1].archived_candidates) ~= expected.candidates or
+        tonumber(staged[1].remaining_facts) ~= 0 or
+        tonumber(staged[1].remaining_hypotheses) ~= 0 or
+        tonumber(staged[1].remaining_candidates) ~= 0 then
+        storage.Execute("ROLLBACK;")
+        return false, "v3 migration archive verification failed; rolled back"
+    end
+    local foreignOK, foreignRows = storage.Query("PRAGMA foreign_key_check")
+    if not foreignOK or not foreignRows or table.getn(foreignRows) > 0 then
+        storage.Execute("ROLLBACK;")
+        return false, "v3 migration foreign key check failed; rolled back"
+    end
+
+    local committed, commitError = storage.Execute("PRAGMA user_version = 3;\nCOMMIT;")
+    if not committed then
+        storage.Execute("ROLLBACK;")
+        return false, "v3 migration commit failed: " .. tostring(commitError)
+    end
+    local versionOK, newVersion = storage.Query("PRAGMA user_version")
+    if not versionOK or not newVersion or not newVersion[1] or
+        tonumber(newVersion[1].user_version) ~= 3 then
+        return false, "v3 migration version verification failed; stop and restore cold backup"
+    end
+    storage.schemaVersion = 3
+    return true, expected
 end
 
 -- Chunk C integration: private facade, HearthDB lifecycle and event gating.
@@ -5675,6 +5859,25 @@ local function PrepareDLSI()
     if repairCount and repairCount > 0 and host.Print then
         host.Print("DLSI repaired " .. tostring(repairCount) ..
             " obsolete aura-vulnerability facts (backup preserved in HearthDB)")
+    end
+
+    -- v1 upgrades through v2 first. A failure closes storage and leaves the
+    -- provider unavailable; an independently completed v1->v2 step can be
+    -- resumed from v2 without ever resetting the file.
+    local migrationOK, migrated, report = pcall(MigrateHearthDBV3, storage)
+    if not migrationOK or not migrated then
+        closed = true
+        storage.Close()
+        if host.Print then host.Print("DLSI v3 migration failed: " ..
+            tostring(migrationOK and report or migrated)) end
+        return false
+    end
+    if report and host.Print and
+        (report.facts > 0 or report.hypotheses > 0) then
+        host.Print("DLSI archived " .. tostring(report.facts) ..
+            " unattributed legacy immune facts and " ..
+            tostring(report.hypotheses) ..
+            " legacy hypotheses in HearthDB v3")
     end
 
     local registrationOK, registered = pcall(
