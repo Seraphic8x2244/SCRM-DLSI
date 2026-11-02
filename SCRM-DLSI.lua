@@ -569,20 +569,85 @@ local function addUnique(list, seen, value)
     end
 end
 
-local function copyEffect(raw, mechanic)
-    if not raw and mechanic == nil then return nil end
-    raw = raw or {}
-    return {
-        effect = raw.effect or 0,
-        auraName = raw.auraName or 0,
-        mechanic = mechanic or 0,
-        basePoints = raw.basePoints,
-        baseDice = raw.baseDice,
-        dieSides = raw.dieSides,
-        pointsPerLevel = raw.pointsPerLevel,
-        dicePerLevel = raw.dicePerLevel,
-        miscValue = raw.miscValue,
+-- ClassicAPI exposes three raw effect tables (including unused zero slots)
+-- and a separate three-element EffectMechanic array. Neither API exposes
+-- implicit effect targets. Missing metadata must stay distinct from DBC zero.
+local function dbcInteger(value)
+    local n = tonumber(value)
+    if not n or n < 0 or n ~= math.floor(n) then return nil end
+    return n
+end
+
+local function copyEffect(raw, mechanic, index)
+    if type(raw) ~= "table" then raw = nil end
+    local effectID = raw and dbcInteger(raw.effect) or nil
+    local auraType = raw and dbcInteger(raw.auraName) or nil
+    local mechanicID = dbcInteger(mechanic)
+    local effect = {
+        effectIndex = index, -- Lua slot 1..3, matching both ClassicAPI arrays
+        effectID = effectID,
+        auraType = auraType,
+        mechanicID = mechanicID,
+        effect = effectID or 0, -- preserve existing consumer fields
+        auraName = auraType or 0,
+        mechanic = mechanicID or 0,
+        basePoints = raw and raw.basePoints or nil,
+        baseDice = raw and raw.baseDice or nil,
+        dieSides = raw and raw.dieSides or nil,
+        pointsPerLevel = raw and raw.pointsPerLevel or nil,
+        dicePerLevel = raw and raw.dicePerLevel or nil,
+        miscValue = raw and raw.miscValue or nil,
+        hasEffectMetadata = raw ~= nil,
+        hasMechanicMetadata = mechanicID ~= nil,
+        targetApplicability = "unknown",
+        targetSource = "unavailable",
+        mechanicDimension = nil,
+        mechanicSource = "unknown",
+        classification = "unknown",
     }
+    if effectID == 0 then
+        effect.active = false
+        effect.targetApplicability = "inactive"
+    elseif effectID ~= nil then
+        effect.active = true
+    end
+    return effect
+end
+
+-- A nonzero EffectMechanic is authoritative even if we cannot map it.
+-- Aura fallback is legal only for a *known zero* on the same active slot.
+local function classifyEffect(effect)
+    if effect.active == false then
+        effect.classification = "inactive"
+        effect.mechanicSource = "none"
+    elseif effect.active == nil then
+        effect.classification = "unknown_activity"
+    elseif effect.mechanicID == nil then
+        effect.classification = "unknown_mechanic"
+    elseif effect.mechanicID > 0 then
+        effect.mechanicDimension = MECHANIC_TO_DIMENSION[effect.mechanicID]
+        if effect.mechanicDimension then
+            effect.classification = "classified"
+            effect.mechanicSource = "effect_mechanic"
+        else
+            effect.classification = "unknown_nonzero_mechanic"
+            effect.mechanicSource = "unmodelled_mechanic"
+        end
+    elseif effect.auraType == nil then
+        effect.classification = "unknown_aura"
+    else
+        effect.mechanicDimension = AURA_NAME_TO_DIMENSION[effect.auraType]
+        if effect.mechanicDimension then
+            effect.classification = "classified"
+            effect.mechanicSource = "aura_fallback"
+        elseif effect.auraType > 0 then
+            effect.classification = "unmodelled_aura"
+            effect.mechanicSource = "unmodelled_aura"
+        else
+            effect.classification = "no_dimension"
+            effect.mechanicSource = "none"
+        end
+    end
 end
 
 function Pipeline.ClearSpellCache()
@@ -638,51 +703,42 @@ function Pipeline.GetSpellProfile(spellID)
         auraTypes = {},
         mechanicDimensions = {},
         hasAura = false,
+        -- Unknown effect types/mechanics cannot justify complete attribution.
+        effectClassificationComplete = true,
+        -- Per-effect implicit target columns are not returned by these APIs.
+        targetApplicabilityComplete = true,
     }
 
     local auraSeen = {}
     local dimensionSeen = {}
-    local explicitMechanicDimension = false
 
     local spellDimension = spellMechanic and MECHANIC_TO_DIMENSION[spellMechanic] or nil
     profile.spellMechanicDimension = spellDimension
-    if spellDimension then
-        addUnique(profile.mechanicDimensions, dimensionSeen, spellDimension)
-        explicitMechanicDimension = true
-    end
+    addUnique(profile.mechanicDimensions, dimensionSeen, spellDimension)
 
     for i = 1, 3 do
-        local raw = rawEffects and rawEffects[i] or nil
-        local effectMechanic = effectMechanics and effectMechanics[i] or 0
-        local effect = copyEffect(raw, effectMechanic)
-        if effect then
-            profile.effects[i] = effect
-            if effect.auraName and effect.auraName > 0 then
-                profile.hasAura = true
-                addUnique(profile.auraTypes, auraSeen, effect.auraName)
-            end
-        end
+        local raw = type(rawEffects) == "table" and rawEffects[i] or nil
+        local mechanic = type(effectMechanics) == "table" and effectMechanics[i] or nil
+        local effect = copyEffect(raw, mechanic, i)
+        classifyEffect(effect)
+        profile.effects[i] = effect
 
-        local dimension = effectMechanic and MECHANIC_TO_DIMENSION[effectMechanic] or nil
-        if effect then
-            effect.mechanicDimension = dimension
+        if effect.active and effect.auraType and effect.auraType > 0 then
+            profile.hasAura = true
+            addUnique(profile.auraTypes, auraSeen, effect.auraType)
         end
-        if dimension then
-            addUnique(profile.mechanicDimensions, dimensionSeen, dimension)
-            explicitMechanicDimension = true
+        if effect.active == nil or
+            (effect.classification ~= "classified" and
+             effect.classification ~= "no_dimension" and
+             effect.classification ~= "inactive") then
+            profile.effectClassificationComplete = false
         end
-    end
-
-    -- Preserve the existing combined-profile fallback rule while also exposing
-    -- a per-effect dimension for the Slice 4 failure-path reducer.
-    for i = 1, 3 do
-        local effect = profile.effects[i]
-        if effect and not effect.mechanicDimension then
-            effect.mechanicDimension = AURA_NAME_TO_DIMENSION[effect.auraName]
+        if effect.targetApplicability ~= "inactive" then
+            profile.targetApplicabilityComplete = false
         end
-        if not explicitMechanicDimension and effect and effect.mechanicDimension then
-            addUnique(profile.mechanicDimensions, dimensionSeen, effect.mechanicDimension)
-        end
+        -- A recognized effect's fallback is independent of explicit mechanics
+        -- on the spell or other effect slots. Preserve distinct sources above.
+        addUnique(profile.mechanicDimensions, dimensionSeen, effect.mechanicDimension)
     end
 
     spellCache[spellID] = profile
